@@ -698,39 +698,41 @@ pub trait HashmapAugType<K: Deserializable + Serializable, X: Deserializable + S
     where F: FnMut(&[u8], usize, SliceData) -> Result<crate::hashmapaug::TraverseNextStep<R>> {
         let label = cursor.get_label(bit_len)?;
         let label_length = label.remaining_bits();
-        if label_length < bit_len {
-            bit_len -= label_length + 1;
+        match label_length.cmp(&bit_len) {
+            std::cmp::Ordering::Less => {
+                bit_len -= label_length + 1;
 
-            let mut aug = cursor.clone();
-            aug.checked_drain_reference()?;
-            aug.checked_drain_reference()?;
-            key.checked_append_references_and_data(&label)?;
-            let to_visit = match callback(key.data(), key.length_in_bits(), aug)? {
-                TraverseNextStep::Stop => return Ok(None),
-                TraverseNextStep::End(r) => return Ok(Some(r)),
-                TraverseNextStep::VisitZero => [Some(0), None],
-                TraverseNextStep::VisitOne => [Some(1), None],
-                TraverseNextStep::VisitZeroOne => [Some(0), Some(1)],
-                TraverseNextStep::VisitOneZero => [Some(1), Some(0)],
-            };
-            for i in to_visit.iter() {
-                if let Some(i) = i {
+                let mut aug = cursor.clone();
+                aug.checked_drain_reference()?;
+                aug.checked_drain_reference()?;
+                key.checked_append_references_and_data(&label)?;
+                let to_visit = match callback(key.data(), key.length_in_bits(), aug)? {
+                    TraverseNextStep::Stop => return Ok(None),
+                    TraverseNextStep::End(r) => return Ok(Some(r)),
+                    TraverseNextStep::VisitZero => [Some(0), None],
+                    TraverseNextStep::VisitOne => [Some(1), None],
+                    TraverseNextStep::VisitZeroOne => [Some(0), Some(1)],
+                    TraverseNextStep::VisitOneZero => [Some(1), Some(0)],
+                };
+                for i in to_visit.iter().flatten() {
                     let mut key = key.clone();
                     key.append_bit_bool(*i != 0)?;
-                    let ref mut child = SliceData::from(cursor.reference(*i)?);
+                    let child = &mut SliceData::from(cursor.reference(*i)?);
                     if let Some(r) = Self::traverse_internal(child, key, bit_len, callback)? {
                         return Ok(Some(r))
                     }
                 }
+            },
+            std::cmp::Ordering::Equal => {
+                key.checked_append_references_and_data(&label)?;
+                return match callback(key.data(), key.length_in_bits(), cursor.clone())? {
+                    TraverseNextStep::End(r) => Ok(Some(r)),
+                    _ => Ok(None),
+                }
             }
-        } else if label_length == bit_len {
-            key.checked_append_references_and_data(&label)?;
-            return match callback(key.data(), key.length_in_bits(), cursor.clone())? {
-               TraverseNextStep::End(r) => Ok(Some(r)),
-                _ => Ok(None),
+            std::cmp::Ordering::Greater => {
+                fail!(BlockError::InvalidData("label_length > bit_len".to_string()))
             }
-        } else {
-            fail!(BlockError::InvalidData("label_length > bit_len".to_string()))
         }
         Ok(None)
     }

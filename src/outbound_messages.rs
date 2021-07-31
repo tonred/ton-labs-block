@@ -152,7 +152,7 @@ impl OutMsgDescr {
     }
 
     pub fn full_exported(&self) -> &CurrencyCollection {
-        &self.root_extra()
+        self.root_extra()
     }
 }
 
@@ -507,14 +507,14 @@ impl OutMsg {
     pub fn message_cell(&self) -> Result<Option<Cell>> {
         Ok(
             match self {
-                OutMsg::External(ref x) => Some(x.message_cell().clone()),
-                OutMsg::Immediately(ref x) => Some(x.read_out_message()?.message_cell().clone()),
-                OutMsg::New(ref x) => Some(x.read_out_message()?.message_cell().clone()),
-                OutMsg::Transit(ref x) => Some(x.read_out_message()?.message_cell().clone()),
-                OutMsg::Dequeue(ref x) => Some(x.read_out_message()?.message_cell().clone()),
+                OutMsg::External(ref x) => Some(x.message_cell()),
+                OutMsg::Immediately(ref x) => Some(x.read_out_message()?.message_cell()),
+                OutMsg::New(ref x) => Some(x.read_out_message()?.message_cell()),
+                OutMsg::Transit(ref x) => Some(x.read_out_message()?.message_cell()),
+                OutMsg::Dequeue(ref x) => Some(x.read_out_message()?.message_cell()),
                 OutMsg::DequeueShort(_) => None,
-                OutMsg::DequeueImmediately(ref x) => Some(x.read_out_message()?.message_cell().clone()),
-                OutMsg::TransitRequeued(ref x) => Some(x.read_out_message()?.message_cell().clone()),
+                OutMsg::DequeueImmediately(ref x) => Some(x.read_out_message()?.message_cell()),
+                OutMsg::TransitRequeued(ref x) => Some(x.read_out_message()?.message_cell()),
                 OutMsg::None => fail!("wrong message type")
             }
         )
@@ -530,7 +530,7 @@ impl OutMsg {
             OutMsg::New(ref x) => Some(x.out_message_cell().repr_hash()),
             OutMsg::Transit(ref x) => Some(x.out_message_cell().repr_hash()),
             OutMsg::Dequeue(ref x) => Some(x.out_message_cell().repr_hash()),
-            OutMsg::DequeueShort(ref x) => Some(x.msg_env_hash.clone()),
+            OutMsg::DequeueShort(ref x) => Some(x.msg_env_hash),
             OutMsg::DequeueImmediately(ref x) => Some(x.out_message_cell().repr_hash()),
             OutMsg::TransitRequeued(ref x) => Some(x.out_message_cell().repr_hash()),
             OutMsg::None => None
@@ -590,31 +590,31 @@ impl Augmentation<CurrencyCollection> for OutMsg {
                 let env = x.read_out_message()?;
                 let msg = env.read_message()?;
                 // exported value = msg.value + msg.ihr_fee + fwd_fee_remaining
-                exported.add(&msg.header().get_value().unwrap())?;
+                exported.add(msg.header().get_value().unwrap())?;
                 if let CommonMsgInfo::IntMsgInfo(header) = msg.header() {
                     exported.grams.add(&header.ihr_fee)?;
                 }
-                exported.grams.add(&env.fwd_fee_remaining())?;
+                exported.grams.add(env.fwd_fee_remaining())?;
             }
             OutMsg::Transit(ref x) => {
                 let env = x.read_out_message()?;
                 let msg = env.read_message()?;
                 // exported value = msg.value + msg.ihr_fee + fwd_fee_remaining
-                exported.add(&msg.header().get_value().unwrap())?;
+                exported.add(msg.header().get_value().unwrap())?;
                 if let CommonMsgInfo::IntMsgInfo(header) = msg.header() {
                     exported.grams.add(&header.ihr_fee)?;
                 }
-                exported.grams.add(&env.fwd_fee_remaining())?;
+                exported.grams.add(env.fwd_fee_remaining())?;
             }
             OutMsg::TransitRequeued(ref x) => {
                 let env = x.read_out_message()?;
                 let msg = env.read_message()?;
                 // exported value = msg.value + msg.ihr_fee + fwd_fee_remaining
-                exported.add(&msg.header().get_value().unwrap())?;
+                exported.add(msg.header().get_value().unwrap())?;
                 if let CommonMsgInfo::IntMsgInfo(header) = msg.header() {
                     exported.grams.add(&header.ihr_fee)?;
                 }
-                exported.grams.add(&env.fwd_fee_remaining())?;
+                exported.grams.add(env.fwd_fee_remaining())?;
             }
             OutMsg::None => fail!("wrong OutMsg type"),
             // for other types - no value exported

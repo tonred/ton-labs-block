@@ -55,7 +55,7 @@ impl Deserializable for MerkleProof {
         }
         self.hash.read_from(cell)?;
         self.depth = cell.get_next_u16()?;
-        self.proof = cell.checked_drain_reference()?.clone();
+        self.proof = cell.checked_drain_reference()?;
         if self.hash != Cell::hash(&self.proof, 0) {
             fail!(
                 BlockError::WrongMerkleProof(
@@ -335,7 +335,7 @@ pub fn check_message_proof(proof: &MerkleProof, msg: &Message, block_id: &UInt25
                     BlockError::WrongMerkleProof("Wrong message's hash in proof".to_string())
                 )
             } else {
-                return Ok(())
+                Ok(())
             }
         } else {
             fail!(
@@ -378,7 +378,7 @@ pub fn check_account_proof(proof: &MerkleProof, acc: &Account) -> Result<BlockSe
                 BlockSeqNoAndShard {
                     seq_no: ss.seq_no(),
                     vert_seq_no: ss.vert_seq_no(),
-                    shard_id: ss.shard().clone(),
+                    shard_id: *ss.shard(),
                 }
             );
         }

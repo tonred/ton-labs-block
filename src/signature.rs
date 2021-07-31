@@ -21,7 +21,8 @@ use crate::{
 use ed25519::signature::{Signature, Verifier};
 use std::{
     io::{Cursor, Write},
-    collections::HashMap
+    collections::HashMap,
+    str::FromStr
 };
 use ton_types::{
     error, fail, Result,
@@ -49,13 +50,6 @@ impl CryptoSignature {
         Ok(Self(ed25519::Signature::from_bytes(bytes)?))
     }
 
-    pub fn from_str(string: &str) -> Result<Self> {
-        let buf = hex::decode(string).map_err(
-            |err| BlockError::InvalidData(format!("error parsing hex string: {}", err))
-        )?;
-        Self::from_bytes(&buf)
-    }
-
     pub fn from_r_s(r: &[u8], s: &[u8]) -> Result<Self>
     {
         if r.len() != ed25519_dalek::SIGNATURE_LENGTH / 2 {
@@ -67,8 +61,8 @@ impl CryptoSignature {
         let mut sign = [0_u8; ed25519_dalek::SIGNATURE_LENGTH];
         {
             let mut cur = Cursor::new(&mut sign[..]);
-            cur.write(r).unwrap();
-            cur.write(s).unwrap();
+            cur.write_all(r).unwrap();
+            cur.write_all(s).unwrap();
         }
         Ok(Self(ed25519::Signature::from_bytes(&sign[..])?))
     }
@@ -99,6 +93,17 @@ impl CryptoSignature {
 
     pub fn signature(&self) -> &ed25519::Signature {
         &self.0
+    }
+}
+
+impl FromStr for CryptoSignature {
+    type Err = failure::Error;
+
+    fn from_str(string: &str) -> Result<Self> {
+        let buf = hex::decode(string).map_err(
+            |err| BlockError::InvalidData(format!("error parsing hex string: {}", err))
+        )?;
+        Self::from_bytes(&buf)
     }
 }
 
@@ -205,13 +210,6 @@ impl SigPubKey {
         Ok(SigPubKey(ed25519_dalek::PublicKey::from_bytes(bytes)?))
     }
 
-    pub fn from_str(string: &str) -> Result<Self> {
-        let key_buf = hex::decode(string).map_err(
-            |err| BlockError::InvalidData(format!("error parsing hex string: {}", err))
-        )?;
-        Self::from_bytes(&key_buf)
-    }
-
     pub fn key(&self) -> &ed25519_dalek::PublicKey {
         &self.0
     }
@@ -222,6 +220,17 @@ impl SigPubKey {
 
     pub fn verify_signature(&self, data: &[u8], signature: &CryptoSignature) -> bool {
         self.0.verify(data, signature.signature()).is_ok()
+    }
+}
+
+impl FromStr for SigPubKey {
+    type Err = failure::Error;
+
+    fn from_str(string: &str) -> Result<Self> {
+        let key_buf = hex::decode(string).map_err(
+            |err| BlockError::InvalidData(format!("error parsing hex string: {}", err))
+        )?;
+        Self::from_bytes(&key_buf)
     }
 }
 
@@ -495,7 +504,7 @@ impl Deserializable for BlockProof {
             )
         }
         self.proof_for.read_from(cell)?; 
-        self.root = cell.checked_drain_reference()?.clone();
+        self.root = cell.checked_drain_reference()?;
         self.signatures = if cell.get_next_bit()? {
             Some(BlockSignatures::construct_from_reference(cell)?)
         } else {

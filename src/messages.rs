@@ -301,7 +301,7 @@ impl FromStr for MsgAddress {
         }
         let address = SliceData::from_string(parts[len - 1])?;
         if len == 2 && parts[0].is_empty() {
-            return Ok(MsgAddress::with_extern(address)?)
+            return MsgAddress::with_extern(address)
         }
         let workchain_id = len.checked_sub(2)
             .map(|index| parts[index].parse::<i32>()).transpose()
@@ -324,7 +324,7 @@ impl FromStr for MsgAddress {
                         )
                 }
             ).transpose()?
-            .map(|value| AnycastInfo::with_rewrite_pfx(value)).transpose()
+            .map(AnycastInfo::with_rewrite_pfx).transpose()
             .map_err(
                 |err| BlockError::InvalidArg(
                     format!("anycast is not correct: {}", err)
@@ -412,7 +412,7 @@ impl MsgAddressInt {
     pub fn get_rewrite_pfx(&self) -> Option<AnycastInfo> { self.rewrite_pfx() }
     pub fn address(&self) -> AccountId {
         match self {
-            MsgAddressInt::AddrStd(addr_std) => addr_std.address.clone().into(),
+            MsgAddressInt::AddrStd(addr_std) => addr_std.address.clone(),
             MsgAddressInt::AddrVar(addr_var) => addr_var.address.clone()
         }
     }
@@ -559,7 +559,7 @@ impl Serializable for MsgAddressIntOrNone {
         match self {
             MsgAddressIntOrNone::None       => {
                 cell.append_raw(&[0x00], 2)?;
-                ()
+                
             },
             MsgAddressIntOrNone::Some(addr) => addr.write_to(cell)?,
         }
@@ -889,14 +889,14 @@ impl CommonMsgInfo {
     /// Value can be transmitted only internal messages
     /// For other types of messages, function returned None
     ///
-    pub fn get_value<'a>(&'a self) -> Option<&'a CurrencyCollection> {
+    pub fn get_value(&self) -> Option<&CurrencyCollection> {
         match self  {
             CommonMsgInfo::IntMsgInfo(header) => Some(&header.value),
             _ => None,
         }        
     }
 
-    pub fn get_value_mut<'a>(&'a mut self) -> Option<&'a mut CurrencyCollection> {
+    pub fn get_value_mut(&mut self) -> Option<&mut CurrencyCollection> {
         match self  {
             CommonMsgInfo::IntMsgInfo(header) => Some(&mut header.value),
             _ => None,
@@ -1304,14 +1304,14 @@ impl Message {
     ///
     /// Get value transmitted by the message
     ///
-    pub fn get_value<'a>(&'a self) -> Option<&'a CurrencyCollection> {
+    pub fn get_value(&self) -> Option<&CurrencyCollection> {
         self.header.get_value()
     }
 
     ///
     /// Get value transmitted by the message
     ///
-    pub fn get_value_mut<'a>(&'a mut self) -> Option<&'a mut CurrencyCollection> {
+    pub fn get_value_mut(&mut self) -> Option<&mut CurrencyCollection> {
         self.body_to_ref = None;
         self.init_to_ref = None;
         self.header.get_value_mut()
@@ -1464,25 +1464,21 @@ impl Message {
         let (body_to_ref, init_to_ref) = 
         if let (Some(b), Some(i)) = (body_to_ref, init_to_ref) {
             (*b, *i)
+        } else if header_bits + state_bits + body_bits <= MAX_DATA_BITS &&
+            header_refs + state_refs + body_refs <= MAX_REFERENCES_COUNT {
+            // all fits into one cell
+            (false, false)
+        } else if header_bits + state_bits <= MAX_DATA_BITS &&
+            header_refs + state_refs < MAX_REFERENCES_COUNT { // + body cell ref
+            // header & state fit
+            (true, false)
+        } else if header_bits + body_bits <= MAX_DATA_BITS &&
+            header_refs + body_refs < MAX_REFERENCES_COUNT { // + init cell ref
+            // header & body fit
+            (false, true)
         } else {
-            if header_bits + state_bits + body_bits <= MAX_DATA_BITS &&
-                header_refs + state_refs + body_refs <= MAX_REFERENCES_COUNT {
-                // all fits into one cell
-                (false, false)
-            } else {
-                if header_bits + state_bits <= MAX_DATA_BITS &&
-                    header_refs + state_refs + 1 <= MAX_REFERENCES_COUNT { // + body cell ref
-                    // header & state fit
-                    (true, false)
-                } else if header_bits + body_bits <= MAX_DATA_BITS &&
-                    header_refs + body_refs + 1 <= MAX_REFERENCES_COUNT { // + init cell ref
-                    // header & body fit
-                    (false, true)
-                } else {
-                    // only header fits
-                    (true, true)
-                }
-            }
+            // only header fits
+            (true, true)
         };
 
         // write StateInit
@@ -1778,13 +1774,13 @@ impl Deserializable for StateInit {
         self.special = TickTock::read_maybe_from(cell)?;
         // code:(Maybe ^Cell)
         self.code = match cell.get_next_bit()? {
-            true => Some(cell.checked_drain_reference()?.clone()),
+            true => Some(cell.checked_drain_reference()?),
             false => None,
         };
 
         // data:(Maybe ^Cell)
         self.data = match cell.get_next_bit()? {
-            true => Some(cell.checked_drain_reference()?.clone()),
+            true => Some(cell.checked_drain_reference()?),
             false => None,
         };
 
@@ -1820,7 +1816,7 @@ pub fn generate_big_msg() -> Message {
     stinit.set_split_depth(Number5(23));
     stinit.set_special(TickTock::with_values(false, true));
     let mut code = SliceData::new(vec![0x3F, 0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xF4]);
-    stinit.set_code(code.clone().into_cell());
+    stinit.set_code(code.into_cell());
     let mut code1 = SliceData::new(vec![0xad, 0xc9, 0xba, 0xfc, 0x56, 0x94, 0x11, 0x56, 0x58, 0xfa, 0x2b, 0xdf, 0xe4, 0x65, 0x15, 0x1a, 
                                     0x32, 0x03, 0x69, 0x4a, 0xff, 0xcd, 0x00, 0x8f, 0x36, 0x8b, 0xd2, 0xcc, 0x8c, 0xc8, 0x10, 0xfb, 
                                     0x6b, 0x5b, 0x51]);

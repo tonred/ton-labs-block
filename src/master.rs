@@ -129,7 +129,7 @@ impl ShardHashes {
         if let Some(InRefValue(bintree)) = self.get(&shard.workchain_id())? {
             let shard_id = shard.shard_key(false);
             if let Some(descr) = bintree.get(shard_id)? {
-                return Ok(Some(McShardRecord::from_shard_descr(shard.clone(), descr)))
+                return Ok(Some(McShardRecord::from_shard_descr(*shard, descr)))
             }
         }
         Ok(None)
@@ -152,7 +152,7 @@ impl ShardHashes {
         let mut new_shards = HashMap::new();
         self.iterate_shards(|shard, descr| {
             let block_id = BlockIdExt {
-                shard_id: shard.clone(),
+                shard_id: shard,
                 seq_no: descr.seq_no,
                 root_hash: descr.root_hash,
                 file_hash: descr.file_hash,
@@ -163,7 +163,7 @@ impl ShardHashes {
                 new_shards.insert(r, vec![block_id]);
             } else if descr.before_merge {
                 let p = shard.merge()?;
-                new_shards.entry(p).or_insert_with(|| vec![]).push(block_id)
+                new_shards.entry(p).or_insert_with(std::vec::Vec::new).push(block_id)
             } else {
                 new_shards.insert(shard, vec![block_id]);
             }
@@ -193,7 +193,7 @@ impl ShardHashes {
             fail!("get_shard_cc_seqno: invalid shard2 {} for {}", &shard2.shard, shard)
         }
 
-        return Ok(std::cmp::max(shard1.descr.next_catchain_seqno, shard2.descr.next_catchain_seqno) + 1)
+        Ok(std::cmp::max(shard1.descr.next_catchain_seqno, shard2.descr.next_catchain_seqno) + 1)
     }
     pub fn split_shard(
         &mut self,
@@ -266,7 +266,7 @@ impl ShardHashes {
         self.iterate_with_keys(|workchain_id: i32, InRefValue(bintree)| {
             println!("workchain: {}", workchain_id);
             bintree.iterate(|prefix, descr| {
-                let shard = ShardIdent::with_prefix_slice(workchain_id, prefix.clone().into())?;
+                let shard = ShardIdent::with_prefix_slice(workchain_id, prefix)?;
                 println!(
                     "shard: {:064b} seq_no: {} shard: 0x{}",
                     shard.shard_prefix_with_tag(),
@@ -290,7 +290,7 @@ pub struct McShardRecord {
 
 impl McShardRecord {
     pub fn from_shard_descr(shard: ShardIdent, descr: ShardDescr) -> Self {
-        let block_id = BlockIdExt::with_params(shard, descr.seq_no, descr.root_hash.clone(), descr.file_hash.clone());
+        let block_id = BlockIdExt::with_params(shard, descr.seq_no, descr.root_hash, descr.file_hash);
         Self { shard, descr, block_id }
     }
 
@@ -299,14 +299,14 @@ impl McShardRecord {
         let value_flow = block.read_value_flow()?;
         Ok(
             McShardRecord {
-                shard: info.shard().clone(),
+                shard: *info.shard(),
                 descr: ShardDescr {
                     seq_no: info.seq_no(),
                     reg_mc_seqno: 0xffff_ffff, // by t-node
                     start_lt: info.start_lt(),
                     end_lt: info.end_lt(),
-                    root_hash: block_id.root_hash().clone(),
-                    file_hash: block_id.file_hash().clone(),
+                    root_hash: *block_id.root_hash(),
+                    file_hash: *block_id.file_hash(),
                     before_split: info.before_split(),
                     before_merge: false, // by t-node
                     want_split: info.want_split(),
@@ -319,7 +319,7 @@ impl McShardRecord {
                     gen_utime: info.gen_utime().0,
                     split_merge_at: FutureSplitMerge::None, // is not used in McShardRecord
                     fees_collected: value_flow.fees_collected.clone(),
-                    funds_created: value_flow.created.clone(),
+                    funds_created: value_flow.created,
                 },
                 block_id,
             }
@@ -473,7 +473,7 @@ impl Deserializable for McBlockExtra {
         self.shards.read_from(cell)?;
         self.fees.read_from(cell)?;
 
-        let ref mut cell1 = cell.checked_drain_reference()?.into();
+        let cell1 = &mut cell.checked_drain_reference()?.into();
         self.prev_blk_signatures.read_from(cell1)?;
         
         self.recover_create_msg = if cell1.get_next_bit()? {
@@ -632,7 +632,7 @@ impl OldMcBlocksInfo {
                 // (x << d) > req_seqno <=> x > (req_seqno >> d) = (y >> 1) <=> 2 * x > y
                 return Ok(TraverseNextStep::Stop);  // all nodes in subtree have block.seqno > req_seqno => skip
             }
-            return if y == 2 * x {
+            if y == 2 * x {
                 Ok(TraverseNextStep::VisitZero) // visit only left ("0")
             } else {
                 Ok(TraverseNextStep::VisitOneZero) // visit right, then left ("1" then "0")
@@ -673,7 +673,7 @@ impl OldMcBlocksInfo {
                 // ((x + 1) << d) <= req_seqno <=> (x+1) <= (req_seqno >> d) = (y >> 1) <=> 2*x+2 <= y <=> y > 2*x+1
                 return Ok(TraverseNextStep::Stop);  // all nodes in subtree have block.seqno < req_seqno => skip
             }
-            return if y == 2 * x + 1 {
+            if y == 2 * x + 1 {
                 Ok(TraverseNextStep::VisitOne) // visit only right ("1")
             } else {
                 Ok(TraverseNextStep::VisitZeroOne) // visit left, then right ("0" then "1")
@@ -927,7 +927,7 @@ impl Deserializable for CreatorStats {
         if tag != Self::tag() {
             fail!(
                 BlockError::InvalidConstructorTag {
-                    t: tag.into(),
+                    t: tag,
                     s: "CreatorStats".to_string()
                 }
             )
@@ -973,7 +973,7 @@ impl Deserializable for BlockCreateStats {
         if tag != Self::tag() {
             fail!(
                 BlockError::InvalidConstructorTag {
-                    t: tag.into(),
+                    t: tag,
                     s: "BlockCreateStats".to_string()
                 }
             )
@@ -1027,7 +1027,7 @@ impl McStateExtra {
     pub fn add_workchain(&mut self, workchain_id: i32, descr: &ShardDescr) -> Result<ShardIdent> {
         let shards = BinTree::with_item(descr)?;
         self.shards.set(&workchain_id, &InRefValue(shards))?;
-        Ok(ShardIdent::with_workchain_id(workchain_id)?)
+        ShardIdent::with_workchain_id(workchain_id)
     }
 
     ///
@@ -1082,7 +1082,7 @@ impl Deserializable for McStateExtra {
         self.shards.read_from(cell)?;
         self.config.read_from(cell)?;
 
-        let ref mut cell1 = cell.checked_drain_reference()?.into();
+        let cell1 = &mut cell.checked_drain_reference()?.into();
         let mut flags = 0u16;
         flags.read_from(cell1)?;
         if flags > 1 {
@@ -1257,7 +1257,7 @@ impl ShardDescr {
             reg_mc_seqno: 0,
             start_lt,
             end_lt,
-            root_hash: root_hash,
+            root_hash,
             file_hash: UInt256::default(),
             before_split: false,
             before_merge: false,

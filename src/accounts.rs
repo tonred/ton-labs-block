@@ -478,7 +478,7 @@ impl AccountState {
                 AccountState::AccountFrozen(state_init.hash().unwrap())
             }
             AccountState::AccountUninit => AccountState::AccountUninit,
-            AccountState::AccountFrozen(x) => AccountState::AccountFrozen(x.clone()),
+            AccountState::AccountFrozen(x) => AccountState::AccountFrozen(*x),
         }
     }
 }
@@ -651,9 +651,7 @@ impl Account {
             let mut storage = AccountStorage::default();
             storage.balance = hdr.value().clone();
             if let Some(init) = msg.state_init() {
-                if init.code.is_none() {
-                    return None
-                }
+                init.code.as_ref()?;
                 storage.state = AccountState::AccountActive(init.clone());
             } else if hdr.bounce {
                 return None
@@ -906,7 +904,7 @@ impl Account {
                 } else {
                     fail!("StateInit doesn't correspond to uninit account address")
                 }
-                AccountState::AccountFrozen(hash) => if hash == &state.hash()? {
+                AccountState::AccountFrozen(hash) => if hash == state.hash()? {
                     AccountState::AccountActive(state.clone())
                 } else {
                     fail!("StateInit doesn't correspond to frozen hash")
@@ -957,7 +955,9 @@ impl Account {
     }
     /// setting due payment
     pub fn set_due_payment(&mut self, due_payment: Option<Grams>) {
-        self.stuff_mut().map(|s| s.storage_stat.due_payment = due_payment);
+        if let Some(s) = self.stuff_mut() {
+            s.storage_stat.due_payment = due_payment;
+        }
     }
 
     /// getting balance of the account
@@ -970,7 +970,9 @@ impl Account {
 
     /// setting balance of the account
     pub fn set_balance(&mut self, balance: CurrencyCollection) {
-        self.stuff_mut().map(|s| s.storage.balance = balance);
+        if let Some(s) = self.stuff_mut() {
+            s.storage.balance = balance;
+        }
     }
 
     /// adding funds to account (for example, for credit phase transaction)

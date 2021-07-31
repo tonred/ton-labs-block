@@ -189,7 +189,7 @@ impl TrComputePhase {
 
     pub fn get_vmphase_mut(&mut self) -> Option<&mut TrComputePhaseVm> {
         match self {
-            TrComputePhase::Vm(ref mut vm_ref) => return Some(vm_ref),
+            TrComputePhase::Vm(ref mut vm_ref) => Some(vm_ref),
             _ => None,
         }
     }
@@ -419,17 +419,15 @@ impl Deserializable for TrBouncePhase {
             bp.msg_fees.read_from(cell)?; // msg_fees:Grams
             bp.fwd_fees.read_from(cell)?; // fwd_fees:Grams
             *self = TrBouncePhase::Ok(bp);
+        } else if cell.get_next_bit()? {
+            // tr_phase_bounce_nofunds$01
+            let mut bp = TrBouncePhaseNofunds::default();
+            bp.msg_size.read_from(cell)?; // msg_size:StorageUsed
+            bp.req_fwd_fees.read_from(cell)?; // req_fwd_fees:Grams
+            *self = TrBouncePhase::Nofunds(bp);
         } else {
-            if cell.get_next_bit()? {
-                // tr_phase_bounce_nofunds$01
-                let mut bp = TrBouncePhaseNofunds::default();
-                bp.msg_size.read_from(cell)?; // msg_size:StorageUsed
-                bp.req_fwd_fees.read_from(cell)?; // req_fwd_fees:Grams
-                *self = TrBouncePhase::Nofunds(bp);
-            } else {
-                //tr_phase_bounce_negfunds$00
-                *self = TrBouncePhase::Negfunds;
-            }
+            //tr_phase_bounce_negfunds$00
+            *self = TrBouncePhase::Negfunds;
         }
         Ok(())
     }
@@ -1328,7 +1326,7 @@ impl Transaction {
     }
 
     /// Get account address of transaction
-    pub fn account_id<'a>(&'a self) -> &'a AccountId {
+    pub fn account_id(&self) -> &AccountId {
         &self.account_addr
     }
 
@@ -1344,7 +1342,7 @@ impl Transaction {
 
     /// get hash of previous transaction
     pub fn prev_trans_hash(&self) -> UInt256 {
-        self.prev_trans_hash.clone()
+        self.prev_trans_hash
     }
 
     pub fn set_prev_trans_hash(&mut self, hash: UInt256) {
@@ -1434,7 +1432,7 @@ impl Transaction {
 
     /// add output message to Hashmap
     pub fn add_out_message(&mut self, mgs: &Message) -> Result<()> {
-        let msg_cell = mgs.serialize()?.into();
+        let msg_cell = mgs.serialize()?;
 
         let mut descr = self.read_description()?;
         descr.append_to_storage_used(&msg_cell);
@@ -1515,7 +1513,6 @@ impl Transaction {
 
         MerkleProof::create_by_usage_tree(block_root, usage_tree)
             .and_then(|proof| proof.serialize())
-            .map(|cell| cell.into())
     }
 
     pub fn contains_out_msg(&self, msg: &Message, hash: &UInt256) -> bool {
@@ -1523,7 +1520,7 @@ impl Transaction {
             if (created_lt > self.lt) && (created_lt <= self.lt + self.outmsg_cnt as u64) {
                 if let Ok(Some(msg_slice)) = self.out_msgs.get_as_slice(&U15::from_lt(created_lt - self.lt - 1)) {
                     if let Some(cell) = msg_slice.reference_opt(0) {
-                        return &cell.repr_hash() == hash
+                        return cell.repr_hash() == hash
                     }
                 }
             }
@@ -1634,7 +1631,7 @@ impl Deserializable for Transaction {
         self.outmsg_cnt = cell.get_next_int(15)? as i16; // outmsg_cnt
         self.orig_status.read_from(cell)?; // orig_status
         self.end_status.read_from(cell)?; // end_status
-        let ref mut cell1 = SliceData::from(cell.checked_drain_reference()?);
+        let cell1 = &mut SliceData::from(cell.checked_drain_reference()?);
         if cell1.get_next_bit()? {
             let mut msg = ChildCell::default();
             msg.read_from_reference(cell1)?;
@@ -1700,7 +1697,7 @@ impl AccountBlock {
         let mut transactions = Transactions::default();
         transactions.setref(
             &transaction.logical_time(),
-            &transaction.serialize()?.into(),
+            &transaction.serialize()?,
             transaction.total_fees()
         )?;
         Ok(AccountBlock {
@@ -1720,7 +1717,7 @@ impl AccountBlock {
 
     /// add transaction to block
     pub fn add_transaction(&mut self, transaction: &Transaction) -> Result<()> {
-        self.add_serialized_transaction(transaction, &transaction.serialize()?.into())
+        self.add_serialized_transaction(transaction, &transaction.serialize()?)
     }
 
     /// append serialized transaction to block (use to increase speed)
@@ -1854,13 +1851,13 @@ impl ShardAccountBlocks {
         self.set_builder_serialized(
             account_block.account_addr.clone(),
             &account_block.write_to_new_cell()?,
-            &account_block.total_fee()
+            account_block.total_fee()
         ).map(|_|())
     }
 
     /// adds transaction to account by id from transaction
     pub fn add_transaction(&mut self, transaction: &Transaction) -> Result<()> {
-        self.add_serialized_transaction(transaction, &transaction.serialize()?.into())
+        self.add_serialized_transaction(transaction, &transaction.serialize()?)
     }
 
     pub fn add_serialized_transaction(&mut self, transaction: &Transaction, transaction_cell: &Cell) -> Result<()> {
@@ -1884,7 +1881,7 @@ impl ShardAccountBlocks {
         };
         // append transaction to AccountBlock
         account_block.add_serialized_transaction(transaction, transaction_cell)?;
-        self.set_builder_serialized(account_id.clone(), &account_block.write_to_new_cell()?, &transaction.total_fees())?;
+        self.set_builder_serialized(account_id.clone(), &account_block.write_to_new_cell()?, transaction.total_fees())?;
         Ok(())
     }
 
@@ -1898,7 +1895,7 @@ impl ShardAccountBlocks {
     }
 
     pub fn full_transaction_fees(&self) -> &CurrencyCollection {
-        &self.root_extra()
+        self.root_extra()
     }
 }
 

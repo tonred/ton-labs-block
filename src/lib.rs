@@ -11,6 +11,10 @@
 * limitations under the License.
 */
 
+#![allow(clippy::many_single_char_names)]
+#![allow(clippy::derive_hash_xor_eq)]
+#![allow(clippy::derive_ord_xor_partial_ord)]
+#![allow(clippy::large_enum_variant)]
 #![cfg_attr(feature = "ci_run", deny(warnings))]
 
 pub mod error;
@@ -209,7 +213,7 @@ pub trait MaybeSerialize {
 
 impl Deserializable for Cell {
     fn read_from(&mut self, cell: &mut SliceData) -> Result<()> {
-        *self = cell.checked_drain_reference()?.clone();
+        *self = cell.checked_drain_reference()?;
         Ok(())
     }
 }
@@ -296,7 +300,7 @@ impl Serializable for AccountId {
         if self.remaining_bits() != 256 {
             fail!("account_id must contain 256 bits, but {}", self.remaining_bits())
         }
-        cell.append_bytestring(&self)?;
+        cell.append_bytestring(self)?;
         Ok(())
     }
 }

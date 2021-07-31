@@ -39,7 +39,7 @@ pub trait BinTreeType<X: Default + Serializable + Deserializable> {
             }
         }
         if key.is_empty() {
-            X::construct_from(&mut cursor).map(|x| Some(x))
+            X::construct_from(&mut cursor).map(Some)
         } else {
             Ok(None)
         }
@@ -127,10 +127,10 @@ where F: FnOnce(X) -> Result<(X, X)>, X: Default + Serializable + Deserializable
         let (left, right) = splitter(X::construct_from(&mut leaf_slice)?)?;
         let mut left_cell = BuilderData::with_raw(vec![0], 1)?;
         left.write_to(&mut left_cell)?;
-        children.push(left_cell.into_cell()?.into());
+        children.push(left_cell.into_cell()?);
         let mut right_cell = BuilderData::with_raw(vec![0], 1)?;
         right.write_to(&mut right_cell)?;
-        children.push(right_cell.into_cell()?.into());
+        children.push(right_cell.into_cell()?);
 
         return Ok(true)
     }
@@ -149,7 +149,7 @@ where F: FnOnce(X) -> Result<X>, X: Default + Serializable + Deserializable
         if let Some(x) = key.get_next_bit_opt() {
             let mut child = BuilderData::from(children.remove(x));
             let result = child.update_cell(internal_update, (key, mutator));
-            children.insert(x, child.into_cell()?.into());
+            children.insert(x, child.into_cell()?);
             return result
         }
     } else if key.is_empty() { // bt_leaf$0 {X:Type} leaf:X
@@ -207,16 +207,16 @@ where
         let left = X::construct_from(cursor)?;
         match sibling {
             Some(cell) => {
-                let mut cursor = SliceData::from(cell.clone());
+                let mut cursor = SliceData::from(cell);
                 if cursor.get_next_bit()? {
-                    func(key.clone(), left, None)?
+                    func(key, left, None)?
                 } else if check_sibling {
                     func(key, left, Some(X::construct_from(&mut cursor)?))?
                 } else {
                     true
                 }
             }
-            None => func(key.clone(), left, None)?
+            None => func(key, left, None)?
         }
     };
     Ok(result)
@@ -369,7 +369,7 @@ impl<X: Default + Serializable + Deserializable, Y: Augmentable> BinTreeAug<X, Y
         }
         if key.is_empty() {
             X::skip(&mut cursor)?;
-            Y::construct_from(&mut cursor).map(|extra| Some(extra))
+            Y::construct_from(&mut cursor).map(Some)
         } else {
             Ok(None)
         }
@@ -417,7 +417,7 @@ impl<X: Default + Serializable + Deserializable, Y: Augmentable> BinTreeAug<X, Y
         Ok(false)
     }
     fn internal_split(slice: &mut SliceData, key: SliceData, value: &X, aug: &Y) -> Result<bool> {
-        let mut cell = BuilderData::from_slice(&slice);
+        let mut cell = BuilderData::from_slice(slice);
         if slice.get_next_bit()? {
             if slice.remaining_references() < 2 {
                 // fork doesn't have two refs - bad data

@@ -316,10 +316,10 @@ impl ValidatorSet {
             failure::bail!(BlockError::InvalidArg("`list` can't be empty".to_string()))
         }
         let mut total_weight = 0;
-        for i in 0..list.len() {
-            list[i].prev_weight_sum = total_weight;
-            total_weight = total_weight.checked_add(list[i].weight).ok_or_else(|| 
-                BlockError::InvalidData(format!("Validator's total weight is more than 2^64"))
+        for item in &mut list {
+            item.prev_weight_sum = total_weight;
+            total_weight = total_weight.checked_add(item.weight).ok_or_else(||
+                BlockError::InvalidData("Validator's total weight is more than 2^64".to_string())
             )?;
         }
         Ok(ValidatorSet {
@@ -329,7 +329,7 @@ impl ValidatorSet {
             main: Number16(main as u32), 
             total_weight,
             cc_seqno: 0,
-            list: list, 
+            list, 
         })
     }
 
@@ -379,7 +379,7 @@ impl ValidatorSet {
 
     pub fn at_weight(&self, weight_pos: u64) -> &ValidatorDescr {
         debug_assert!(weight_pos < self.total_weight);
-        debug_assert!(self.list.len() > 0);
+        debug_assert!(!self.list.is_empty());
         for i in 0..self.list.len() {
             if self.list[i].prev_weight_sum > weight_pos {
                 debug_assert!(i != 0);
@@ -414,8 +414,8 @@ impl ValidatorSet {
                     indexes[j] = i;
                 }
                 let mut subset = Vec::with_capacity(count);
-                for i in 0..count {
-                    subset.push(self.list()[indexes[i]].clone());
+                for index in indexes {
+                    subset.push(self.list()[index].clone());
                 }
                 subset
             }
@@ -459,7 +459,7 @@ impl ValidatorSet {
                 subset.push(ValidatorDescr::with_params(
                     next_validator.public_key.clone(),
                     1, // NB: shardchain validator lists have all weights = 1
-                    next_validator.adnl_addr.clone()));
+                    next_validator.adnl_addr));
                 debug_assert!(weight_remainder >= next_validator.weight);
                 weight_remainder -= next_validator.weight;
 
@@ -488,7 +488,7 @@ impl ValidatorSet {
 
     const HASH_SHORT_MAGIC: i32 = -1877581587;
 
-    pub fn calc_subset_hash_short(subset: &Vec<ValidatorDescr>, cc_seqno: u32) -> Result<u32> {
+    pub fn calc_subset_hash_short(subset: &[ValidatorDescr], cc_seqno: u32) -> Result<u32> {
         let mut hasher = crc32::Digest::new(crc32::CASTAGNOLI);
         hasher.write(&Self::HASH_SHORT_MAGIC.to_le_bytes());
         hasher.write(&cc_seqno.to_le_bytes());
@@ -564,12 +564,10 @@ impl Deserializable for ValidatorSet {
         }
         if tag == VALIDATOR_SET_TAG {
             self.total_weight = self.list.iter().map(|vd| vd.weight).sum();
-        } else {
-            if self.total_weight != total_weight {
-                failure::bail!(
-                    BlockError::InvalidData("Calculated total_weight is not equal to the read one while read ValidatorSet".to_string())
-                )
-            }
+        } else if self.total_weight != total_weight {
+            failure::bail!(
+                BlockError::InvalidData("Calculated total_weight is not equal to the read one while read ValidatorSet".to_string())
+            )
         }
 
         if self.main > self.total {
@@ -603,10 +601,10 @@ impl ValidatorSetPRNG {
         // u32 cc_seqno;
         let mut context = [0_u8; 48];
         let mut cur = Cursor::new(&mut context[..]);
-        cur.write(seed).unwrap();
-        cur.write(&shard_pfx.to_be_bytes()).unwrap();
-        cur.write(&workchain_id.to_be_bytes()).unwrap();
-        cur.write(&cc_seqno.to_be_bytes()).unwrap();
+        cur.write_all(seed).unwrap();
+        cur.write_all(&shard_pfx.to_be_bytes()).unwrap();
+        cur.write_all(&workchain_id.to_be_bytes()).unwrap();
+        cur.write_all(&cc_seqno.to_be_bytes()).unwrap();
 
         ValidatorSetPRNG{
             context,

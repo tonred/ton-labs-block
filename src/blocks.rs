@@ -400,7 +400,7 @@ impl BlockInfo {
         } else if self.after_split {
             Ok(vec!(prev.prev1()?.workchain_block_id(self.shard.merge()?).1))
         } else {
-            Ok(vec!(prev.prev1()?.workchain_block_id(self.shard.clone()).1))
+            Ok(vec!(prev.prev1()?.workchain_block_id(self.shard).1))
         }
     }
     pub fn set_prev_stuff(&mut self, after_merge: bool, prev_ref: &BlkPrevInfo) -> Result<()> {
@@ -652,9 +652,9 @@ impl Block {
         let mut data = [0_u8; Self::DATA_FOR_SIGN_SIZE];
         {
             let mut cur = Cursor::new(&mut data[..]);
-            cur.write(&Self::DATA_FOR_SIGN_TAG).unwrap();
-            cur.write(root_hash.as_slice()).unwrap();
-            cur.write(file_hash.as_slice()).unwrap();
+            cur.write_all(&Self::DATA_FOR_SIGN_TAG).unwrap();
+            cur.write_all(root_hash.as_slice()).unwrap();
+            cur.write_all(file_hash.as_slice()).unwrap();
         }
         data
     }
@@ -1050,14 +1050,14 @@ impl Deserializable for ValueFlow {
                 }
             )
         }
-        let ref mut cell1 = cell.checked_drain_reference()?.into();
+        let cell1 = &mut cell.checked_drain_reference()?.into();
         self.from_prev_blk.read_from(cell1)?;
         self.to_next_blk.read_from(cell1)?;
         self.imported.read_from(cell1)?;
         self.exported.read_from(cell1)?;
         self.fees_collected.read_from(cell)?;
 
-        let ref mut cell2 = cell.checked_drain_reference()?.into();
+        let cell2 = &mut cell.checked_drain_reference()?.into();
         self.fees_imported.read_from(cell2)?;
         self.recovered.read_from(cell2)?;
         self.created.read_from(cell2)?;
@@ -1265,7 +1265,7 @@ impl Deserializable for TopBlockDescr {
         self.proof_for.read_from(slice)?;
         self.signatures = BlockSignatures::read_maybe_from(slice)?;
         let len = slice.get_next_int(8)?;
-        if !(len >= 1 && len <= 8) {
+        if !(1..=8).contains(&len) {
             fail!(
                 BlockError::InvalidData(
                     "Failed check: `len >= 1 && len <= 8`".to_string()
@@ -1303,14 +1303,14 @@ pub struct TopBlockDescrSet {
 impl TopBlockDescrSet {
     pub fn get_top_block_descr(&self, shard: &ShardIdent) -> Result<Option<TopBlockDescr>> {
         match self.collection.0.get(shard.full_key_with_tag()?)? {
-            Some(slice) => TopBlockDescr::construct_from_cell(slice.reference(0)?).map(|r| Some(r)),
+            Some(slice) => TopBlockDescr::construct_from_cell(slice.reference(0)?).map(Some),
             None => Ok(None)
         }
     }
     pub fn insert(&mut self, shard: &ShardIdent, descr: &TopBlockDescr) -> Result<()> {
         let key = shard.full_key_with_tag()?;
         let value = descr.serialize()?;
-        self.collection.0.setref(key, &value.into()).map(|_|())
+        self.collection.0.setref(key, &value).map(|_|())
     }
     pub fn is_empty(&self) -> bool {
         self.collection.is_empty()

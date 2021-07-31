@@ -477,7 +477,7 @@ impl CurrencyCollection {
     }
 
     pub fn set_other_ex(&mut self, key: u32, other: &VarUInteger32) -> Result<()> {
-        self.other.set(&key, &other)?;
+        self.other.set(&key, other)?;
         Ok(())
     }
 
@@ -1018,7 +1018,7 @@ impl<T: Default + Serializable + Deserializable + Clone> ChildCell<T> {
                         BlockError::PrunedCellAccess(std::any::type_name::<T>().into())
                     )
                 }
-                T::construct_from(&mut SliceData::from(cell.clone()))
+                T::construct_from(&mut SliceData::from(cell))
             }
             None => Ok(T::default())
         }
