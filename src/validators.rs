@@ -193,9 +193,9 @@ impl ValidatorDescr {
     pub fn compute_node_id_short(&self) -> UInt256 {
         let mut hasher = Sha256::new();
         let magic = [0xc6, 0xb4, 0x13, 0x48]; // magic 0x4813b4c6 from original node's code
-        hasher.input(&magic);
-        hasher.input(self.public_key.key_bytes());
-        From::<[u8; 32]>::from(hasher.result().into())
+        hasher.update(&magic);
+        hasher.update(self.public_key.key_bytes());
+        From::<[u8; 32]>::from(hasher.finalize().into())
     }
 }
 
@@ -616,8 +616,8 @@ impl ValidatorSetPRNG {
     fn reset(&mut self) -> u64 {
         // calc hash
         let mut hasher = Sha512::new();
-        hasher.input(&self.context[..]);
-        let mut hash = Cursor::new(hasher.result());
+        hasher.update(&self.context[..]);
+        let mut hash = Cursor::new(hasher.finalize());
 
         // increment seed
         for i in (0..32).rev() {

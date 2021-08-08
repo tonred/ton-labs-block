@@ -111,8 +111,8 @@ impl SignedBlock {
 		combined_data.write_all(&serlz_hash).unwrap();
 
 		let mut hasher = sha2::Sha256::new();
-		hasher.input(combined_data.as_slice());
-		let combined_hash: [u8; 32] = hasher.result().into();
+		hasher.update(combined_data.as_slice());
+		let combined_hash: [u8; 32] = hasher.finalize().into();
 		
 		let mut result = SignedBlock {
 			block,
@@ -212,9 +212,9 @@ impl SignedBlock {
 		}
 
 		let mut hasher = sha2::Sha256::new();
-		hasher.input(&block_repr_hash);
-		hasher.input(&serlz_hash);
-		let combined_hash = From::<[u8; 32]>::from(hasher.result().into());
+		hasher.update(&block_repr_hash);
+		hasher.update(&serlz_hash);
+		let combined_hash = From::<[u8; 32]>::from(hasher.finalize().into());
 
 		Ok(SignedBlock {
 			block,
@@ -229,8 +229,8 @@ impl SignedBlock {
 		let l = data.len();
 		if l <= 256 {
 			let mut hasher = sha2::Sha256::new();
-			hasher.input(data);
-			Ok(hasher.result().into())
+			hasher.update(data);
+			Ok(hasher.finalize().into())
 		} else {
 			let n = Self::largest_power_of_two_less_than(l);
 			let data1_hash = Self::calc_merkle_hash(&data[..n])?;
@@ -240,8 +240,8 @@ impl SignedBlock {
 			data_for_hash[8..8 + SHA256_SIZE].copy_from_slice(&data1_hash);
 			data_for_hash[8 + SHA256_SIZE..].copy_from_slice(&data2_hash);
 			let mut hasher = sha2::Sha256::new();
-			hasher.input(&data_for_hash[..]);
-			Ok(hasher.result().into())
+			hasher.update(&data_for_hash[..]);
+			Ok(hasher.finalize().into())
 		}
 	}
 
