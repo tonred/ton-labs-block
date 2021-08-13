@@ -97,7 +97,7 @@ impl CryptoSignature {
 }
 
 impl FromStr for CryptoSignature {
-    type Err = failure::Error;
+    type Err = anyhow::Error;
 
     fn from_str(string: &str) -> Result<Self> {
         let buf = hex::decode(string).map_err(
@@ -224,7 +224,7 @@ impl SigPubKey {
 }
 
 impl FromStr for SigPubKey {
-    type Err = failure::Error;
+    type Err = anyhow::Error;
 
     fn from_str(string: &str) -> Result<Self> {
         let key_buf = hex::decode(string).map_err(

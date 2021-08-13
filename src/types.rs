@@ -54,7 +54,7 @@ macro_rules! define_VarIntegerN {
         impl $varname {
 
             fn get_len(value: &BigInt) -> usize {
-                (value.bits() + 7) >> 3
+                ((value.bits() + 7) >> 3) as usize
             }
 
             pub fn value(&self) -> &BigInt {

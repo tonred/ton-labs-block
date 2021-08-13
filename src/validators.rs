@@ -313,7 +313,7 @@ impl ValidatorSet {
         mut list: Vec<ValidatorDescr>
     ) -> Result<Self> {
         if list.is_empty() {
-            failure::bail!(BlockError::InvalidArg("`list` can't be empty".to_string()))
+            anyhow::bail!(BlockError::InvalidArg("`list` can't be empty".to_string()))
         }
         let mut total_weight = 0;
         for item in &mut list {
@@ -560,12 +560,12 @@ impl Deserializable for ValidatorSet {
             self.list.push(val);
         }
         if self.list.is_empty() {
-            failure::bail!(BlockError::InvalidData("list can't be empty".to_string()));
+            anyhow::bail!(BlockError::InvalidData("list can't be empty".to_string()));
         }
         if tag == VALIDATOR_SET_TAG {
             self.total_weight = self.list.iter().map(|vd| vd.weight).sum();
         } else if self.total_weight != total_weight {
-            failure::bail!(
+            anyhow::bail!(
                 BlockError::InvalidData("Calculated total_weight is not equal to the read one while read ValidatorSet".to_string())
             )
         }
