@@ -39,3 +39,6 @@ num-traits = "^0.2.8"
 rand = "0.7.2"
 sha2 = "0.9"
 thiserror = "1.0.26"
+
+[features]
+asm = ["sha2/asm","ton_types/asm", "ed25519-dalek/asm"]
