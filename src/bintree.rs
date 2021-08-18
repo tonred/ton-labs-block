@@ -21,6 +21,7 @@ use ton_types::{
     error, fail, Result,
     BuilderData, Cell, IBitstring, SliceData
 };
+use smallvec::SmallVec;
 
 
 pub trait BinTreeType<X: Default + Serializable + Deserializable> {
@@ -74,7 +75,7 @@ pub trait BinTreeType<X: Default + Serializable + Deserializable> {
 //////////////////////////////////
 // helper functions
 fn internal_merge<X, F>(
-    data: &mut Vec<u8>, bits: &mut usize, children: &mut Vec<Cell>, (mut key, merger): (SliceData, F)
+    data: &mut SmallVec<[u8; 128]>, bits: &mut usize, children: &mut SmallVec<[Cell; 4]>, (mut key, merger): (SliceData, F)
 ) -> Result<bool> 
 where F: FnOnce(X, X) -> Result<X>, X: Default + Serializable + Deserializable
 {
@@ -94,7 +95,7 @@ where F: FnOnce(X, X) -> Result<X>, X: Default + Serializable + Deserializable
         let right = X::construct_from(&mut right_slice)?;
         let left = X::construct_from(&mut left_slice)?;
         let merged = merger(left, right)?;
-        let mut merged_cell = BuilderData::with_raw(vec![0], 1)?;
+        let mut merged_cell = BuilderData::with_raw(SmallVec::from_slice(&[0]), 1)?;
         merged.write_to(&mut merged_cell)?;
         merged_cell.cell_data(data, bits, children);
         Ok(true)
@@ -102,7 +103,7 @@ where F: FnOnce(X, X) -> Result<X>, X: Default + Serializable + Deserializable
 }
 
 fn internal_split<X, F>(
-    data: &mut Vec<u8>, bits: &mut usize, children: &mut Vec<Cell>, (mut key, splitter): (SliceData, F)
+    data: &mut SmallVec<[u8; 128]>, bits: &mut usize, children: &mut SmallVec<[Cell; 4]>, (mut key, splitter): (SliceData, F)
 ) -> Result<bool>
 where F: FnOnce(X) -> Result<(X, X)>, X: Default + Serializable + Deserializable
 {
@@ -117,7 +118,7 @@ where F: FnOnce(X) -> Result<(X, X)>, X: Default + Serializable + Deserializable
             return result
         }
     } else if key.is_empty() { // bt_leaf$0 {X:Type} leaf:X
-        let leaf = BuilderData::with_raw_and_refs(std::mem::replace(data, vec![0x80]), *bits, children.drain(..))?;
+        let leaf = BuilderData::with_raw_and_refs(std::mem::replace(data, SmallVec::from_slice(&[0x80])), *bits, children.drain(..))?;
         *bits = 1;
 
         let mut leaf_slice = SliceData::from(leaf.into_cell()?);
@@ -125,10 +126,10 @@ where F: FnOnce(X) -> Result<(X, X)>, X: Default + Serializable + Deserializable
             return Ok(false)
         }
         let (left, right) = splitter(X::construct_from(&mut leaf_slice)?)?;
-        let mut left_cell = BuilderData::with_raw(vec![0], 1)?;
+        let mut left_cell = BuilderData::with_raw(SmallVec::from_slice(&[0]), 1)?;
         left.write_to(&mut left_cell)?;
         children.push(left_cell.into_cell()?);
-        let mut right_cell = BuilderData::with_raw(vec![0], 1)?;
+        let mut right_cell = BuilderData::with_raw(SmallVec::from_slice(&[0]), 1)?;
         right.write_to(&mut right_cell)?;
         children.push(right_cell.into_cell()?);
 
@@ -138,7 +139,7 @@ where F: FnOnce(X) -> Result<(X, X)>, X: Default + Serializable + Deserializable
 }
 
 fn internal_update<X, F>(
-    data: &mut Vec<u8>, bits: &mut usize, children: &mut Vec<Cell>, (mut key, mutator): (SliceData, F)
+    data: &mut SmallVec<[u8; 128]>, bits: &mut usize, children: &mut SmallVec<[Cell; 4]>, (mut key, mutator): (SliceData, F)
 ) -> Result<bool>
 where F: FnOnce(X) -> Result<X>, X: Default + Serializable + Deserializable
 {
@@ -153,13 +154,13 @@ where F: FnOnce(X) -> Result<X>, X: Default + Serializable + Deserializable
             return result
         }
     } else if key.is_empty() { // bt_leaf$0 {X:Type} leaf:X
-        let leaf = BuilderData::with_raw_and_refs(std::mem::replace(data, vec![0x80]), *bits, children.drain(..))?;
+        let leaf = BuilderData::with_raw_and_refs(std::mem::replace(data, SmallVec::from_slice(&[0x80])), *bits, children.drain(..))?;
         let mut leaf_slice = SliceData::from(leaf.into_cell()?);
         if leaf_slice.get_next_bit()? {
             return Ok(false)
         }
         let value = mutator(X::construct_from(&mut leaf_slice)?)?;
-        let mut new_left_cell = BuilderData::with_raw(vec![0], 1)?;
+        let mut new_left_cell = BuilderData::with_raw(SmallVec::from_slice(&[0]), 1)?;
         value.write_to(&mut new_left_cell)?;
         new_left_cell.cell_data(data, bits, children);
         return Ok(true)
@@ -244,7 +245,7 @@ impl<X: Default + Serializable + Deserializable> BinTreeType<X> for BinTree<X> {
 impl<X: Default + Serializable + Deserializable> BinTree<X> {
     /// Constructs new instance and put item
     pub fn with_item(value: &X) -> Result<Self> {
-        let mut leaf = BuilderData::with_raw(vec![0x00], 1).unwrap();
+        let mut leaf = BuilderData::with_raw(SmallVec::from_slice(&[0]), 1).unwrap();
         value.write_to(&mut leaf)?;
         Ok(Self {
             data: leaf.into_cell()?.into(),
@@ -342,7 +343,7 @@ impl<X: Default + Serializable + Deserializable, Y: Augmentable> BinTreeType<X> 
 impl<X: Default + Serializable + Deserializable, Y: Augmentable> BinTreeAug<X, Y> {
     /// Constructs new instance and put item
     pub fn with_item(value: &X, aug: &Y) -> Result<Self> {
-        let mut leaf = BuilderData::with_raw(vec![0x00], 1).unwrap();
+        let mut leaf = BuilderData::with_raw(SmallVec::from_slice(&[0x00]), 1).unwrap();
         value.write_to(&mut leaf)?;
         aug.write_to(&mut leaf)?;
         Ok(Self {
@@ -403,13 +404,13 @@ impl<X: Default + Serializable + Deserializable, Y: Augmentable> BinTreeAug<X, Y
     //////////////////////////////////
     // helper functions
     fn internal_split_next(
-        data: &mut Vec<u8>, bits: &mut usize, children: &mut Vec<Cell>, (mut key, value, aug): (SliceData, &X, &Y)
+        data: &mut SmallVec<[u8; 128]>, bits: &mut usize, children: &mut SmallVec<[Cell; 4]>, (mut key, value, aug): (SliceData, &X, &Y)
     ) -> Result<bool> {
         if let Some(x) = key.get_next_bit_opt() {
             let mut cursor = children[x].clone().into();
             if Self::internal_split(&mut cursor, key, value, aug)? {
                children[x] = cursor.into_cell();
-                *data = vec![0x80];
+                *data = SmallVec::from_slice(&[0x80]);
                 *bits = 1;
                 return Ok(true)
             }
@@ -434,9 +435,9 @@ impl<X: Default + Serializable + Deserializable, Y: Augmentable> BinTreeAug<X, Y
             X::skip(slice)?;
             let mut fork_aug = Y::construct_from(slice)?;
             fork_aug.calc(aug)?;
-            let mut builder = BuilderData::with_bitstring(vec![0xC0])?;
+            let mut builder = BuilderData::with_bitstring(SmallVec::from_slice(&[0xC0]))?;
             builder.append_reference_cell(cell.into_cell()?);
-            let mut cell = BuilderData::with_raw(vec![0], 1)?;
+            let mut cell = BuilderData::with_raw(SmallVec::from_slice(&[0]), 1)?;
             value.write_to(&mut cell)?;
             aug.write_to(&mut cell)?;
             builder.append_reference_cell(cell.into_cell()?);
