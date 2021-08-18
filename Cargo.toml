@@ -24,7 +24,7 @@ version = "1.7.14"
 clear_on_drop = { version = "0.2", features = ["no_cc"] }
 
 [dependencies]
-ton_types = { git = "https://github.com/broxus/ton-labs-types.git" }
+ton_types = { git = "https://github.com/broxus/ton-labs-types.git", branch = "smallVec" }
 
 # External
 anyhow = "1"
@@ -39,6 +39,7 @@ num-traits = "^0.2.8"
 rand = "0.7.2"
 sha2 = "0.9"
 thiserror = "1.0.26"
+smallvec = { version = "1.6.1", features = ["const_generics", "union", "write"] }
 
 [features]
 asm = ["sha2/asm","ton_types/asm", "ed25519-dalek/asm"]
