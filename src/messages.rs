@@ -310,7 +310,7 @@ impl FromStr for MsgAddress {
                     format!("workchain_id is not correct number: {}", err)
                 )
             )?
-            .unwrap_or_default();
+            .ok_or_else(|| BlockError::InvalidArg("missing workchain id".to_string()))?;
         let anycast = len.checked_sub(3)
             .map(
                 |index| if parts[index].is_empty() {
