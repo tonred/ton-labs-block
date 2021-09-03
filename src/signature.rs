@@ -329,7 +329,7 @@ impl BlockSignaturesPure {
 
     pub fn check_signatures(&self, validators_list: Vec<ValidatorDescr>, data: &[u8]) -> Result<u64> {
         // Calc validators short ids
-        let mut validators_map = HashMap::new();
+        let mut validators_map = HashMap::with_capacity(validators_list.len());
         for vd in validators_list {
             validators_map.insert(vd.compute_node_id_short(), vd);
         };
