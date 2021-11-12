@@ -228,7 +228,7 @@ impl fmt::Display for AccountIdPrefixFull {
 }
 
 /*
-shard_ident$00 
+shard_ident$00
     shard_pfx_bits: (#<= 60)
     workchain_id: int32
     shard_prefix: uint64
@@ -250,12 +250,20 @@ impl Default for ShardIdent {
 }
 
 impl ShardIdent {
-    pub fn masterchain() -> Self {
+    pub const fn masterchain() -> Self {
         ShardIdent {
             workchain_id: MASTERCHAIN_ID,
             prefix: SHARD_FULL,
         }
     }
+
+    pub const fn full(workchain_id: i32) -> Self {
+        ShardIdent {
+            workchain_id,
+            prefix: SHARD_FULL,
+        }
+    }
+
     pub fn with_prefix_len(shard_pfx_len: u8, workchain_id: i32, shard_prefix: u64) -> Result<Self> {
         if shard_pfx_len > MAX_SPLIT_DEPTH {
             fail!(BlockError::InvalidArg(
@@ -328,7 +336,7 @@ impl ShardIdent {
             ))
         }
         Ok(())
-    } 
+    }
 
     /// Get bitstring-key for BinTree operation for Shard
     pub fn shard_key(&self, include_workchain: bool) -> SliceData {
@@ -406,13 +414,13 @@ impl ShardIdent {
         let x = Self::lower_bits(parent);
         ((parent ^ child) & (Self::negate_bits(x) << 1)) == 0
     }
-    
+
     pub fn is_ancestor(parent: u64, child: u64) -> bool {
         let x = Self::lower_bits(parent);
         let y = Self::lower_bits(child);
         x >= y && ((parent ^ child) & (Self::negate_bits(x) << 1)) == 0
     }
-    
+
     pub fn intersect_with(&self, other: &Self) -> bool {
         if self.workchain_id != other.workchain_id {
             return false
@@ -496,7 +504,7 @@ impl ShardIdent {
             if self.prefix == SHARD_FULL {
                 true
             } else {
-                // compare shard prefix and first bits of address 
+                // compare shard prefix and first bits of address
                 // (take as many bits of the address as the bits in the prefix)
                 let len = self.prefix_len();
                 let addr_pfx = acc_addr.get_next_int(len as usize)?;
@@ -608,7 +616,7 @@ impl ShardIdent {
 
     pub fn prefix_len(&self) -> u8 {
         match self.prefix {
-            0 => 64, 
+            0 => 64,
             prefix => 63 - prefix.trailing_zeros() as u8
         }
     }
@@ -828,9 +836,10 @@ pub struct ShardStateUnsplit {
 
 impl ShardStateUnsplit {
     pub fn with_ident(shard_id: ShardIdent) -> Self {
-        let mut shard_state = ShardStateUnsplit::default();
-        shard_state.shard_id = shard_id;
-        shard_state
+        Self {
+            shard_id,
+            ..ShardStateUnsplit::default()
+        }
     }
 
     pub fn id(&self) -> String {
@@ -925,7 +934,7 @@ impl ShardStateUnsplit {
     pub fn write_accounts(&mut self, value: &ShardAccounts) -> Result<()> {
         self.accounts.write_struct(value)
     }
-    
+
     pub fn insert_account(&mut self, account_id: &UInt256, acc: &ShardAccount) -> Result<()> {
         let account = acc.read_account()?;
         let mut accounts = self.read_accounts()?;

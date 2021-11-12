@@ -80,6 +80,16 @@ impl Deserializable for ShardIdentFull {
 }
 
 impl ShardHashes {
+    pub fn iterate_shards_for_workchain<F>(&self, workchain_id: i32, mut func: F) -> Result<()>
+        where F: FnMut(ShardIdent, ShardDescr) -> Result<bool> {
+        if let Some(InRefValue(shards)) = self.get(&workchain_id)? {
+            shards.iterate(|prefix, shard_descr| {
+                let shard_ident = ShardIdent::with_prefix_slice(workchain_id, prefix)?;
+                func(shard_ident, shard_descr)
+            })?;
+        }
+        Ok(())
+    }
     pub fn iterate_shards<F>(&self, mut func: F) -> Result<bool>
     where F: FnMut(ShardIdent, ShardDescr) -> Result<bool> {
         self.iterate_with_keys(|wc_id: i32, InRefValue(shardes_tree)| {
@@ -180,17 +190,17 @@ impl ShardHashes {
         let shard1 = self.find_shard(&shard.left_ancestor_mask()?)?
             .ok_or_else(|| error!("get_shard_cc_seqno: can't find shard1"))?;
 
-        if shard1.shard.is_ancestor_for(shard) {
+        if shard1.shard().is_ancestor_for(shard) {
             return Ok(shard1.descr.next_catchain_seqno)
-        } else if !shard.is_parent_for(&shard1.shard) {
-            fail!("get_shard_cc_seqno: invalid shard1 {} for {}", &shard1.shard, shard)
+        } else if !shard.is_parent_for(shard1.shard()) {
+            fail!("get_shard_cc_seqno: invalid shard1 {} for {}", &shard1.shard(), shard)
         }
 
         let shard2 = self.find_shard(&shard.right_ancestor_mask()?)?
             .ok_or_else(|| error!("get_shard_cc_seqno: can't find shard2"))?;
 
-        if !shard.is_parent_for(&shard2.shard) {
-            fail!("get_shard_cc_seqno: invalid shard2 {} for {}", &shard2.shard, shard)
+        if !shard.is_parent_for(shard2.shard()) {
+            fail!("get_shard_cc_seqno: invalid shard2 {} for {}", &shard2.shard(), shard)
         }
 
         Ok(std::cmp::max(shard1.descr.next_catchain_seqno, shard2.descr.next_catchain_seqno) + 1)
@@ -245,14 +255,14 @@ impl ShardHashes {
         if self.has_workchain(workchain_id)? {
             fail!("Workchain {} is already added", workchain_id);
         }
-        
-        let mut descr = ShardDescr::default();
-        descr.reg_mc_seqno = reg_mc_seqno;
-        descr.root_hash = zerostate_root_hash;
-        descr.file_hash = zerostate_file_hash;
-        descr.min_ref_mc_seqno = !0;
-        descr.next_validator_shard = SHARD_FULL;
-        descr.min_ref_mc_seqno = 0;
+
+        let descr = ShardDescr {
+            reg_mc_seqno,
+            root_hash: zerostate_root_hash,
+            file_hash: zerostate_file_hash,
+            next_validator_shard: SHARD_FULL,
+            ..ShardDescr::default()
+        };
         let tree = BinTree::with_item(&descr)?;
 
         self.set(&workchain_id, &InRefValue(tree))
@@ -283,7 +293,6 @@ impl ShardHashes {
 
 #[derive(Clone, Default, Debug, Eq, PartialEq)]
 pub struct McShardRecord {
-    pub shard: ShardIdent,
     pub descr: ShardDescr,
     pub block_id: BlockIdExt,
 }
@@ -291,7 +300,7 @@ pub struct McShardRecord {
 impl McShardRecord {
     pub fn from_shard_descr(shard: ShardIdent, descr: ShardDescr) -> Self {
         let block_id = BlockIdExt::with_params(shard, descr.seq_no, descr.root_hash, descr.file_hash);
-        Self { shard, descr, block_id }
+        Self { descr, block_id }
     }
 
     pub fn from_block(block: &Block, block_id: BlockIdExt) -> Result<Self> {
@@ -299,7 +308,6 @@ impl McShardRecord {
         let value_flow = block.read_value_flow()?;
         Ok(
             McShardRecord {
-                shard: *info.shard(),
                 descr: ShardDescr {
                     seq_no: info.seq_no(),
                     reg_mc_seqno: 0xffff_ffff, // by t-node
@@ -318,7 +326,7 @@ impl McShardRecord {
                     min_ref_mc_seqno: info.min_ref_mc_seqno(),
                     gen_utime: info.gen_utime().0,
                     split_merge_at: FutureSplitMerge::None, // is not used in McShardRecord
-                    fees_collected: value_flow.fees_collected.clone(),
+                    fees_collected: value_flow.fees_collected,
                     funds_created: value_flow.created,
                 },
                 block_id,
@@ -326,7 +334,7 @@ impl McShardRecord {
         )
     }
 
-    pub fn shard(&self) -> &ShardIdent { &self.shard }
+    pub fn shard(&self) -> &ShardIdent { self.block_id.shard() }
 
     pub fn descr(&self) -> &ShardDescr { &self.descr }
 
@@ -400,7 +408,7 @@ impl McBlockExtra {
 
     ///
     /// Get all fees for blockchain
-    /// 
+    ///
     pub fn total_fee(&self) -> &CurrencyCollection {
         &self.fees.root_extra().fees
     }
@@ -408,7 +416,7 @@ impl McBlockExtra {
 
     ///
     /// Get total fees for shard
-    /// 
+    ///
     pub fn fee(&self, ident: &ShardIdent) -> Result<Option<CurrencyCollection>> {
         Ok(match self.fees.get_serialized(ident.full_key()?)? {
             Some(shards) => Some(shards.fees),
@@ -475,13 +483,13 @@ impl Deserializable for McBlockExtra {
 
         let cell1 = &mut cell.checked_drain_reference()?.into();
         self.prev_blk_signatures.read_from(cell1)?;
-        
+
         self.recover_create_msg = if cell1.get_next_bit()? {
             Some(ChildCell::construct_from_reference(cell1)?)
         } else {
             None
         };
-        
+
         self.mint_msg = if cell1.get_next_bit()? {
             Some(ChildCell::construct_from_reference(cell1)?)
         } else {
@@ -513,14 +521,14 @@ impl Serializable for McBlockExtra {
         } else {
             cell1.append_bit_zero()?;
         }
-        
+
         if let Some(msg) = self.mint_msg.as_ref() {
             cell1.append_bit_one()?;
             cell1.append_reference_cell(msg.serialize()?);
         } else {
             cell1.append_bit_zero()?;
         }
-        
+
         cell.append_reference_cell(cell1.into_cell()?);
 
         if let Some(config) = &self.config {
@@ -628,14 +636,17 @@ impl OldMcBlocksInfo {
                 }
             }
             let y = req_seqno >> (d - 1);
-            if y < 2 * x {
-                // (x << d) > req_seqno <=> x > (req_seqno >> d) = (y >> 1) <=> 2 * x > y
-                return Ok(TraverseNextStep::Stop);  // all nodes in subtree have block.seqno > req_seqno => skip
-            }
-            if y == 2 * x {
-                Ok(TraverseNextStep::VisitZero) // visit only left ("0")
-            } else {
-                Ok(TraverseNextStep::VisitOneZero) // visit right, then left ("1" then "0")
+            match y.cmp(&(2 * x)) {
+                std::cmp::Ordering::Less => {
+                    // (x << d) > req_seqno <=> x > (req_seqno >> d) = (y >> 1) <=> 2 * x > y
+                    Ok(TraverseNextStep::Stop) // all nodes in subtree have block.seqno > req_seqno => skip
+                }
+                std::cmp::Ordering::Equal => {
+                    Ok(TraverseNextStep::VisitZero) // visit only left ("0")
+                }
+                _ => {
+                    Ok(TraverseNextStep::VisitOneZero) // visit right, then left ("1" then "0")
+                }
             }
         })?;
 
@@ -669,14 +680,17 @@ impl OldMcBlocksInfo {
                 }
             }
             let y = req_seqno >> (d - 1);
-            if y > 2 * x + 1 {
-                // ((x + 1) << d) <= req_seqno <=> (x+1) <= (req_seqno >> d) = (y >> 1) <=> 2*x+2 <= y <=> y > 2*x+1
-                return Ok(TraverseNextStep::Stop);  // all nodes in subtree have block.seqno < req_seqno => skip
-            }
-            if y == 2 * x + 1 {
-                Ok(TraverseNextStep::VisitOne) // visit only right ("1")
-            } else {
-                Ok(TraverseNextStep::VisitZeroOne) // visit left, then right ("0" then "1")
+            match y.cmp(&(2 * x + 1)) {
+                std::cmp::Ordering::Greater => {
+                    // ((x + 1) << d) <= req_seqno <=> (x+1) <= (req_seqno >> d) = (y >> 1) <=> 2*x+2 <= y <=> y > 2*x+1
+                    Ok(TraverseNextStep::Stop) // all nodes in subtree have block.seqno < req_seqno => skip
+                }
+                std::cmp::Ordering::Equal => {
+                    Ok(TraverseNextStep::VisitOne) // visit only right ("1")
+                }
+                _ => {
+                    Ok(TraverseNextStep::VisitZeroOne) // visit left, then right ("0" then "1")
+                }
             }
         })?;
 
@@ -1042,7 +1056,7 @@ impl McStateExtra {
 
     ///
     /// Get shard last Logical Time
-    /// 
+    ///
     pub fn shard_lt(&self, ident: &ShardIdent) -> Result<Option<u64>> {
         Ok(match self.shards.get(&ident.workchain_id())? {
             Some(InRefValue(shards)) => shards.get(ident.shard_key(false))?.map(|s| s.start_lt),
@@ -1052,7 +1066,7 @@ impl McStateExtra {
 
     ///
     /// Get shard last block hash
-    /// 
+    ///
     pub fn shard_hash(&self, ident: &ShardIdent) -> Result<Option<UInt256>> {
         Ok(match self.shards.get(&ident.workchain_id())? {
             Some(InRefValue(shards)) => shards.get(ident.shard_key(false))?.map(|s| s.root_hash),
@@ -1137,14 +1151,14 @@ impl Serializable for McStateExtra {
 /*
 fsm_none$0
 
-fsm_split$10 
-    split_utime: uint32 
+fsm_split$10
+    split_utime: uint32
     interval: uint32
 = FutureSplitMerge;
 
-fsm_merge$11 
-    merge_utime: uint32 
-    interval: uint32 
+fsm_merge$11
+    merge_utime: uint32
+    interval: uint32
 = FutureSplitMerge;
 */
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1155,7 +1169,7 @@ pub enum FutureSplitMerge {
         interval: u32,
     },
     Merge {
-        merge_utime: u32, 
+        merge_utime: u32,
         interval: u32,
     }
 }
@@ -1214,7 +1228,7 @@ split_merge_at:FutureSplitMerge = ShardDescr;
 
 shard_descr#b seq_no:uint32 reg_mc_seqno:uint32
   start_lt:uint64 end_lt:uint64
-  root_hash:bits256 file_hash:bits256 
+  root_hash:bits256 file_hash:bits256
   before_split:Bool before_merge:Bool
   want_split:Bool want_merge:Bool
   nx_cc_updated:Bool flags:(## 3) { flags = 0 }
@@ -1251,9 +1265,9 @@ impl ShardDescr {
 
     /// Constructs ShardDescr as slice with its params
     pub fn with_params(seq_no: u32, start_lt: u64, end_lt: u64, root_hash: UInt256, split_merge_at: FutureSplitMerge) -> Self {
-        
+
         ShardDescr {
-            seq_no, 
+            seq_no,
             reg_mc_seqno: 0,
             start_lt,
             end_lt,
@@ -1263,9 +1277,9 @@ impl ShardDescr {
             before_merge: false,
             want_split: false,
             want_merge: false,
-            nx_cc_updated: false, 
+            nx_cc_updated: false,
             flags: 0,
-            next_catchain_seqno: 0, 
+            next_catchain_seqno: 0,
             next_validator_shard: 0,
             min_ref_mc_seqno: 0,
             gen_utime: 0,
@@ -1330,7 +1344,7 @@ impl Deserializable for ShardDescr {
                 BlockError::InvalidConstructorTag {
                     t: tag as u32,
                     s: "ShardDescr".to_string()
-                } 
+                }
             )
         }
 
@@ -1393,7 +1407,7 @@ impl Serializable for ShardDescr {
             flags |= 1 << 3;
         }
         flags |= self.flags & 0x7;
-        
+
         flags.write_to(cell)?;
 
         self.next_catchain_seqno.write_to(cell)?;
@@ -1427,7 +1441,7 @@ impl Default for BlkMasterInfo {
 
 impl Deserializable for BlkMasterInfo {
      fn read_from(&mut self, cell: &mut SliceData) -> Result<()> {
-        self.master.read_from(cell)        
+        self.master.read_from(cell)
     }
 }
 

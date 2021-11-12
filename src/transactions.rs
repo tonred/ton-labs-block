@@ -18,7 +18,7 @@ use crate::{
     error::BlockError,
     hashmapaug::{Augmentable, Augmentation, HashmapAugType},
     merkle_proof::MerkleProof,
-    messages::{generate_big_msg, Message},
+    messages::Message,
     shard::ShardStateUnsplit,
     types::{AddSub, ChildCell, CurrencyCollection, Grams, InRefValue, VarUInteger3, VarUInteger7},
     MaybeSerialize, MaybeDeserialize, Serializable, Deserializable,
@@ -254,38 +254,46 @@ impl Serializable for TrComputePhase {
 }
 
 impl Deserializable for TrComputePhase {
-    fn read_from(&mut self, cell: &mut SliceData) -> Result<()> {
-
+    fn construct_from(cell: &mut SliceData) -> Result<Self> {
         if !cell.get_next_bit()? {
-            // tr_phase_compute_skipped$0clear
-            let mut s = TrComputePhaseSkipped::default();
-            s.reason.read_from(cell)?;// reason:ComputeSkipReason
-            *self = TrComputePhase::Skipped(s);
+            let reason = Deserializable::construct_from(cell)?;
+            Ok(TrComputePhase::Skipped(TrComputePhaseSkipped { reason }))
         } else {
             // tr_phase_compute_vm$1
-            let mut v = TrComputePhaseVm::default();
-
-            v.success = cell.get_next_bit()?; // success:Bool
-            v.msg_state_used = cell.get_next_bit()?; // msg_state_used:Bool
-            v.account_activated = cell.get_next_bit()?; // account_activated:Bool
-            v.gas_fees.read_from(cell)?; // gas_fees:Gram
+            let success = cell.get_next_bit()?; // success:Bool
+            let msg_state_used = cell.get_next_bit()?; // msg_state_used:Bool
+            let account_activated = cell.get_next_bit()?; // account_activated:Bool
+            let gas_fees = Deserializable::construct_from(cell)?; // gas_fees:Gram
 
             // fields below are serialized into separate cell
-            let mut sep_cell = cell.checked_drain_reference()?.into();
+            let sep_cell = &mut cell.checked_drain_reference()?.into();
 
-            v.gas_used.read_from(&mut sep_cell)?; // gas_used:(VarUInteger 7)
-            v.gas_limit.read_from(&mut sep_cell)?; // gas_limit:(VarUInteger 7)
-            v.gas_credit = VarUInteger3::read_maybe_from(&mut sep_cell)?; // gas_credit:(Maybe (VarUInteger 3))
-            v.mode = sep_cell.get_next_byte()? as i8; // mode:int8
-            v.exit_code = sep_cell.get_next_u32()? as i32; // exit_code:int32
-            v.exit_arg = i32::read_maybe_from(&mut sep_cell)?; // exit_arg:(Maybe int32)
-            v.vm_steps = sep_cell.get_next_u32()?; // vm_steps:uint32
-            v.vm_init_state_hash.read_from(&mut sep_cell)?; // vm_init_state_hash:uint256
-            v.vm_final_state_hash.read_from(&mut sep_cell)?; // vm_final_state_hash:uint256
-
-            *self = TrComputePhase::Vm(v);
+            let gas_used = Deserializable::construct_from(sep_cell)?; // gas_used:(VarUInteger 7)
+            let gas_limit = Deserializable::construct_from(sep_cell)?; // gas_limit:(VarUInteger 7)
+            let gas_credit = Deserializable::construct_maybe_from(sep_cell)?; // gas_credit:(Maybe (VarUInteger 3))
+            let mode = Deserializable::construct_from(sep_cell)?; // mode:int8
+            let exit_code = Deserializable::construct_from(sep_cell)?; // exit_code:int32
+            let exit_arg = Deserializable::construct_maybe_from(sep_cell)?; // exit_arg:(Maybe int32)
+            let vm_steps = Deserializable::construct_from(sep_cell)?; // vm_steps:uint32
+            let vm_init_state_hash = Deserializable::construct_from(sep_cell)?; // vm_init_state_hash:uint256
+            let vm_final_state_hash = Deserializable::construct_from(sep_cell)?; // vm_final_state_hash:uint256
+            let v = TrComputePhaseVm {
+                success,
+                msg_state_used,
+                account_activated,
+                gas_fees,
+                gas_used,
+                gas_limit,
+                gas_credit,
+                mode,
+                exit_code,
+                exit_arg,
+                vm_steps,
+                vm_init_state_hash,
+                vm_final_state_hash
+            };
+            Ok(TrComputePhase::Vm(v))
         }
-        Ok(())
     }
 }
 
@@ -304,7 +312,15 @@ pub struct TrStoragePhase {
 }
 
 impl TrStoragePhase {
-    pub fn with_params(collected: Grams, due: Option<Grams>, status: AccStatusChange) -> Self {
+    pub fn new() -> Self {
+        Self {
+            storage_fees_collected: Grams::default(),
+            storage_fees_due: None,
+            status_change: AccStatusChange::default()
+
+        }
+    }
+    pub const fn with_params(collected: Grams, due: Option<Grams>, status: AccStatusChange) -> Self {
         TrStoragePhase {
             storage_fees_collected: collected,
             storage_fees_due: due,
@@ -465,7 +481,10 @@ pub struct TrCreditPhase {
 }
 
 impl TrCreditPhase {
-    pub fn with_params(due_fees_collected: Option<Grams>, credit: CurrencyCollection) -> Self {
+    pub const fn default() -> Self {
+        TrCreditPhase::with_params(None, CurrencyCollection::default())
+    }
+    pub const fn with_params(due_fees_collected: Option<Grams>, credit: CurrencyCollection) -> Self {
         TrCreditPhase {
             due_fees_collected,
             credit,
@@ -631,7 +650,7 @@ impl Serializable for SplitMergeInfo {
         }
         if 0 != self.acc_split_depth & 0b11000000 {
             fail!(
-                BlockError::InvalidData("self.acc_split_depth is too long".to_string()) 
+                BlockError::InvalidData("self.acc_split_depth is too long".to_string())
             )
         } else {
             cell.append_bits(self.acc_split_depth as usize, 6)?;
@@ -744,14 +763,16 @@ pub struct TransactionDescrTickTock {
 
 impl TransactionDescrTickTock {
     pub fn tick() -> Self {
-        let mut descr = Self::default();
-        descr.tt = TransactionTickTock::Tick;
-        descr
+        Self {
+            tt: TransactionTickTock::Tick,
+            ..Self::default()
+        }
     }
     pub fn tock() -> Self {
-        let mut descr = Self::default();
-        descr.tt = TransactionTickTock::Tock;
-        descr
+        Self {
+            tt: TransactionTickTock::Tock,
+            ..Self::default()
+        }
     }
 }
 
@@ -1249,20 +1270,20 @@ define_HashmapE!{OutMessages, 15, InRefValue<Message>}
 pub type TransactionId = UInt256;
 
 /*
-transaction$0111 
-    account_addr:bits256 
-    lt:uint64 
+transaction$0111
+    account_addr:bits256
+    lt:uint64
     prev_trans_hash:bits256
     prev_trans_lt:uint64
     now:uint32
     outmsg_cnt:uint15
     orig_status:AccountStatus
     end_status:AccountStatus
-    ^[  in_msg:(Maybe ^(Message Any)) 
+    ^[  in_msg:(Maybe ^(Message Any))
         out_msgs:(HashmapE 15 ^(Message Any)) ]
     total_fees:CurrencyCollection
     state_update:^(HASH_UPDATE Account)
-    description:^TransactionDescr 
+    description:^TransactionDescr
 = Transaction;
 */
 #[derive(Debug, Clone)]
@@ -1375,11 +1396,6 @@ impl Transaction {
 
     /// get total fees
     pub fn total_fees(&self) -> &CurrencyCollection { &self.total_fees }
-
-    /// get mutable total fees
-    pub fn total_fees_mut(&mut self) -> &mut CurrencyCollection {
-        &mut self.total_fees
-    }
 
     ///
     /// Calculate total transaction fees
@@ -1497,22 +1513,21 @@ impl Transaction {
             .read_extra()?
             .read_account_blocks()?
             .get_serialized(self.account_id().clone())?
-            .ok_or_else(|| 
+            .ok_or_else(||
                 BlockError::InvalidArg(
                     "Transaction doesn't belong to given block \
-                     (can't find account block)".to_string() 
+                     (can't find account block)".to_string()
                 )
             )?
             .transactions()
             .get(&self.logical_time())?
-            .ok_or_else(|| 
+            .ok_or_else(||
                 BlockError::InvalidArg(
                     "Transaction doesn't belong to given block".to_string()
                 )
             )?;
 
-        MerkleProof::create_by_usage_tree(block_root, usage_tree)
-            .and_then(|proof| proof.serialize())
+        MerkleProof::create_by_usage_tree(block_root, usage_tree)?.serialize()
     }
 
     pub fn contains_out_msg(&self, msg: &Message, hash: &UInt256) -> bool {
@@ -1565,7 +1580,7 @@ impl Default for Transaction {
             lt: 0,
             prev_trans_hash: UInt256::default(),
             prev_trans_lt: 0,
-            now: 0,            
+            now: 0,
             outmsg_cnt: 0,
             orig_status: AccountStatus::AccStateUninit,
             end_status: AccountStatus::AccStateUninit,
@@ -1912,27 +1927,4 @@ impl Default for TransactionProcessingStatus {
     fn default() -> Self {
         TransactionProcessingStatus::Unknown
     }
-}
-
-#[allow(dead_code)]
-pub fn generate_tranzaction(address : AccountId) -> Transaction {
-    let s_in_msg = generate_big_msg();
-    let s_out_msg1 = generate_big_msg();
-    let s_out_msg2 = Message::default();
-    let s_out_msg3 = Message::default();
-
-    let s_status_update = HashUpdate::default();
-    let s_tr_desc = TransactionDescr::default();
-
-    let mut tr = Transaction::with_address_and_status(address, AccountStatus::AccStateActive);
-    tr.set_logical_time(123423);
-    tr.set_end_status(AccountStatus::AccStateFrozen);
-    tr.set_total_fees(CurrencyCollection::with_grams(653));
-    tr.write_in_msg(Some(&s_in_msg)).unwrap();
-    tr.add_out_message(&s_out_msg1).unwrap();
-    tr.add_out_message(&s_out_msg2).unwrap();
-    tr.add_out_message(&s_out_msg3).unwrap();
-    tr.write_state_update(&s_status_update).unwrap();
-    tr.write_description(&s_tr_desc).unwrap();
-    tr
 }

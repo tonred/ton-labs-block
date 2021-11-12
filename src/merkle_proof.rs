@@ -24,7 +24,7 @@ use crate::{
 };
 use std::{cmp::max, collections::HashSet};
 use ton_types::{
-    Cell, CellType, BuilderData, error, fail, IBitstring, LevelMask, SliceData, Result, 
+    Cell, CellType, BuilderData, fail, IBitstring, LevelMask, SliceData, Result,
     UsageTree, types::UInt256
 };
 
@@ -66,7 +66,7 @@ impl Deserializable for MerkleProof {
         if self.depth != Cell::depth(&self.proof, 0) {
             fail!(
                 BlockError::WrongMerkleProof(
-                    "Stored proof depth is not equal calculated one".to_string() 
+                    "Stored proof depth is not equal calculated one".to_string()
                 )
             )
         }
@@ -121,10 +121,10 @@ impl MerkleProof {
         pruned_branches: &mut Option<HashSet<UInt256>>,
     ) -> Result<BuilderData> {
 
-        let child_merkle_depth = if cell.is_merkle() { 
-            merkle_depth + 1 
-        } else { 
-            merkle_depth 
+        let child_merkle_depth = if cell.is_merkle() {
+            merkle_depth + 1
+        } else {
+            merkle_depth
         };
 
         let mut proof_cell = BuilderData::new();
@@ -143,7 +143,7 @@ impl MerkleProof {
             child_mask |= proof_child.level_mask();
             proof_cell.append_reference_cell(proof_child.into_cell()?);
         }
-        
+
         proof_cell.set_level_mask(if cell.is_merkle() {
             LevelMask::for_merkle_cell(child_mask)
         } else {
@@ -226,7 +226,7 @@ pub fn check_transaction_proof(proof: &MerkleProof, tr: &Transaction, block_id: 
     let tr_parent_slice_opt = account_block.transactions().get_as_slice(&tr.logical_time())
         .map_err(
             |err| BlockError::WrongMerkleProof(
-                format!("Error extracting transaction from dictionary in proof: {}", err) 
+                format!("Error extracting transaction from dictionary in proof: {}", err)
             )
         )?;
     if let Some(mut tr_parent_slice) = tr_parent_slice_opt {
@@ -341,7 +341,7 @@ pub fn check_message_proof(proof: &MerkleProof, msg: &Message, block_id: &UInt25
             fail!(
                 BlockError::WrongMerkleProof(
                     "Error extracting message from out message".to_string()
-                ) 
+                )
             )
         }
     } else {

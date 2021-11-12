@@ -198,6 +198,12 @@ impl ConfigParams {
             _ => fail!("no elector params in config")
         }
     }
+    pub fn validators_count(&self) -> Result<ConfigParam16> {
+        match self.config(16)? {
+            Some(ConfigParamEnum::ConfigParam16(param)) => Ok(param),
+            _ => fail!("no elector params in config")
+        }
+    }
     // TODO 16 validators count
     // TODO 17 stakes config
     pub fn storage_prices(&self) -> Result<ConfigParam18> {
@@ -303,6 +309,7 @@ pub enum GlobalCapabilities {
     CapShortDequeue = 32,
     CapMbppEnabled = 64,
     CapFastStorageStat = 128,
+    CapOffHypercube = 512,
 }
 
 impl ConfigParams {
@@ -436,7 +443,7 @@ impl Serializable for ConfigParams {
             cell.append_reference_cell(self.config_params.data().unwrap().clone());
         }
         self.config_addr.write_to(cell)?;
-        
+
         Ok(())
     }
 }
@@ -491,7 +498,7 @@ macro_rules! read_config {
 }
 
 impl ConfigParamEnum {
-    
+
     /// read config from cell
     pub fn construct_from_slice_and_number(slice: &mut SliceData, index: u32) -> Result<ConfigParamEnum> {
         match index {
@@ -581,7 +588,7 @@ _ config_addr:bits256 = ConfigParam 0;
 
 ///
 /// Config Param 0 structure
-/// 
+///
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct ConfigParam0 {
     pub config_addr: UInt256,
@@ -613,7 +620,7 @@ _ elector_addr:bits256 = ConfigParam 1;
 
 ///
 /// Config Param 1 structure
-/// 
+///
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct ConfigParam1 {
     pub elector_addr: UInt256,
@@ -641,7 +648,7 @@ impl Serializable for ConfigParam1 {
 
 ///
 /// Config Param 2 structure
-/// 
+///
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct ConfigParam2 {
     pub minter_addr: UInt256,
@@ -669,7 +676,7 @@ impl Serializable for ConfigParam2 {
 
 ///
 /// Config Param 3 structure
-/// 
+///
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct ConfigParam3 {
     pub fee_collector_addr: UInt256,
@@ -697,7 +704,7 @@ impl Serializable for ConfigParam3 {
 
 ///
 /// Config Param 4 structure
-/// 
+///
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct ConfigParam4 {
     pub dns_root_addr: UInt256,
@@ -725,7 +732,7 @@ impl Serializable for ConfigParam4 {
 
 ///
 /// Config Param 6 structure
-/// 
+///
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct ConfigParam6 {
     pub mint_new_price: Grams,
@@ -756,7 +763,7 @@ impl Serializable for ConfigParam6 {
 
 ///
 /// Config Param 7 structure
-/// 
+///
 #[derive(Clone, Default, Debug, Eq, PartialEq)]
 pub struct ConfigParam7 {
     pub to_mint: ExtraCurrencyCollection,
@@ -784,7 +791,7 @@ impl Serializable for ConfigParam7 {
 
 ///
 /// Config Param 8 structure
-/// 
+///
 // capabilities#c4 version:uint32 capabilities:uint64 = GlobalVersion;
 // _ GlobalVersion = ConfigParam 8;  // all zero if absent
 
@@ -859,7 +866,7 @@ define_HashmapE!{MandatoryParams, 32, ()}
 
 ///
 /// Config Param 9 structure
-/// 
+///
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ConfigParam9 {
     pub mandatory_params: MandatoryParams,
@@ -887,7 +894,7 @@ impl Serializable for ConfigParam9 {
 
 ///
 /// Config Param 10 structure
-/// 
+///
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ConfigParam10 {
     pub critical_params: MandatoryParams,
@@ -915,7 +922,7 @@ impl Serializable for ConfigParam10 {
 
 ///
 /// Config Param 14 structure
-/// 
+///
 // block_grams_created#6b masterchain_block_fee:Grams basechain_block_fee:Grams
 //   = BlockCreateFees;
 // _ BlockCreateFees = ConfigParam 14;
@@ -987,7 +994,7 @@ impl Serializable for ConfigParam14 {
 
 ///
 /// Config Param 15 structure
-/// 
+///
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct ConfigParam15 {
     pub validators_elected_for: u32,
@@ -1023,16 +1030,16 @@ impl Serializable for ConfigParam15 {
 }
 
 /*
-_ max_validators:(## 16) max_main_validators:(## 16) min_validators:(## 16) 
-  { max_validators >= max_main_validators } 
-  { max_main_validators >= min_validators } 
+_ max_validators:(## 16) max_main_validators:(## 16) min_validators:(## 16)
+  { max_validators >= max_main_validators }
+  { max_main_validators >= min_validators }
   { min_validators >= 1 }
   = ConfigParam 16;
 */
 
 ///
 /// Config Param 16 structure
-/// 
+///
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct ConfigParam16 {
     pub max_validators: Number16,
@@ -1065,17 +1072,17 @@ impl Serializable for ConfigParam16 {
 }
 
 /*
-_ 
-    min_stake: Grams 
-    max_stake: Grams 
-    min_total_stake: Grams 
-    max_stake_factor: uint32 
+_
+    min_stake: Grams
+    max_stake: Grams
+    min_total_stake: Grams
+    max_stake_factor: uint32
 = ConfigParam 17;
 */
 
 ///
 /// Config Param 17 structure
-/// 
+///
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct ConfigParam17 {
     pub min_stake: Grams,
@@ -1111,12 +1118,12 @@ impl Serializable for ConfigParam17 {
 }
 
 /*
-_#cc 
-    utime_since:uint32 
-    bit_price_ps:uint64 
-    cell_price_ps:uint64 
-    mc_bit_price_ps:uint64 
-    mc_cell_price_ps:uint64 
+_#cc
+    utime_since:uint32
+    bit_price_ps:uint64
+    cell_price_ps:uint64
+    mc_bit_price_ps:uint64
+    mc_cell_price_ps:uint64
 = StoragePrices;
 
 _ (Hashmap 32 StoragePrices) = ConfigParam 18;
@@ -1124,7 +1131,7 @@ _ (Hashmap 32 StoragePrices) = ConfigParam 18;
 
 ///
 /// StoragePrices structure
-/// 
+///
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct StoragePrices {
     pub utime_since: u32,
@@ -1178,7 +1185,7 @@ define_HashmapE!(ConfigParam18Map, 32, StoragePrices);
 
 ///
 /// ConfigParam 18 struct
-/// 
+///
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ConfigParam18 {
     pub map: ConfigParam18Map,
@@ -1228,14 +1235,14 @@ impl Serializable for ConfigParam18 {
 }
 
 /*
-gas_prices#dd 
-    gas_price:uint64 
-    gas_limit:uint64 
-    gas_credit:uint64 
-    block_gas_limit:uint64 
-    freeze_due_limit:uint64 
-    delete_due_limit:uint64 
-= GasLimitsPrices; 
+gas_prices#dd
+    gas_price:uint64
+    gas_limit:uint64
+    gas_credit:uint64
+    block_gas_limit:uint64
+    freeze_due_limit:uint64
+    delete_due_limit:uint64
+= GasLimitsPrices;
 
 gas_prices_ext#de
   gas_price:uint64
@@ -1244,7 +1251,7 @@ gas_prices_ext#de
   gas_credit:uint64
   block_gas_limit:uint64
   freeze_due_limit:uint64
-  delete_due_limit:uint64 
+  delete_due_limit:uint64
   = GasLimitsPrices;
 
 gas_flat_pfx#d1
@@ -1256,7 +1263,7 @@ gas_flat_pfx#d1
 
 ///
 /// GasLimitsPrices
-/// 
+///
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct GasLimitsPrices {
     pub gas_price: u64,
@@ -1280,7 +1287,7 @@ impl GasLimitsPrices {
     pub fn calc_gas_fee(&self, gas_used: u64) -> u128 {
         // There is a flat_gas_limit value which is the minimum gas value possible and has fixed price.
         // If actual gas value is less then flat_gas_limit then flat_gas_price paid.
-        // If actual gas value is bigger then flat_gas_limit then flat_gas_price paid for first 
+        // If actual gas value is bigger then flat_gas_limit then flat_gas_price paid for first
         // flat_gas_limit gas and remaining value costs gas_price
         if gas_used <= self.flat_gas_limit {
             self.flat_gas_price as u128
@@ -1397,20 +1404,20 @@ config_gas_prices#_ GasLimitsPrices = ConfigParam 21;
 // msg_fwd_fees = (lump_price + ceil((bit_price * msg.bits + cell_price * msg.cells)/2^16)) nanograms
 // ihr_fwd_fees = ceil((msg_fwd_fees * ihr_price_factor)/2^16) nanograms
 // bits in the root cell of a message are not included in msg.bits (lump_price pays for them)
-msg_forward_prices#ea 
-    lump_price:uint64 
-    bit_price:uint64 
+msg_forward_prices#ea
+    lump_price:uint64
+    bit_price:uint64
     cell_price:uint64
-    ihr_price_factor:uint32 
-    first_frac:uint16 
-    next_frac:uint16 
+    ihr_price_factor:uint32
+    first_frac:uint16
+    next_frac:uint16
 = MsgForwardPrices;
 
 */
 
 ///
 /// MsgForwardPrices
-/// 
+///
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct MsgForwardPrices {
     pub lump_price: u64,
@@ -1473,27 +1480,27 @@ config_fwd_prices#_ MsgForwardPrices = ConfigParam 25;
 
 
 /*
-catchain_config#c1 
-    mc_catchain_lifetime:uint32 
-    shard_catchain_lifetime:uint32 
-    shard_validators_lifetime:uint32 
-    shard_validators_num:uint32 
+catchain_config#c1
+    mc_catchain_lifetime:uint32
+    shard_catchain_lifetime:uint32
+    shard_validators_lifetime:uint32
+    shard_validators_num:uint32
 = CatchainConfig;
 
 catchain_config_new#c2
-    flags: (## 7) 
-    { flags = 0 } 
+    flags: (## 7)
+    { flags = 0 }
     shuffle_mc_validators: Bool
     mc_catchain_lifetime: uint3
     shard_catchain_lifetime: uint32
-    shard_validators_lifetime: uint32 
-    shard_validators_num: uint32 
+    shard_validators_lifetime: uint32
+    shard_validators_num: uint32
 = CatchainConfig;
 */
 
 ///
 /// MsgForwardPrices
-/// 
+///
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct CatchainConfig {
     pub isolate_mc_validators: bool,
@@ -1578,13 +1585,13 @@ consensus_config_new#d7
     { flags = 0 }
     new_catchain_ids: Bool
     round_candidates: (## 8) { round_candidates >= 1 }
-    next_candidate_delay_ms: uint32 
+    next_candidate_delay_ms: uint32
     consensus_timeout_ms: uint32
     fast_attempts: uint32
     attempt_duration: uint32
     catchain_max_deps: uint32
     max_block_bytes: uint32
-    max_collated_bytes: uint32 
+    max_collated_bytes: uint32
 = ConsensusConfig;
 */
 
@@ -1706,7 +1713,7 @@ impl IntoIterator for &FundamentalSmcAddresses {
 
 ///
 /// ConfigParam 31;
-/// 
+///
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ConfigParam31 {
     pub fundamental_smc_addr: FundamentalSmcAddresses,
@@ -1740,7 +1747,7 @@ macro_rules! define_configparams {
     ( $cpname:ident, $pname:ident ) => {
         ///
         /// $cpname structure
-        /// 
+        ///
         #[derive(Clone, Debug, Eq, PartialEq, Default)]
         pub struct $cpname {
             pub $pname: ValidatorSet,
@@ -1831,15 +1838,15 @@ impl Serializable for WorkchainFormat {
 }
 
 /*
-wfmt_basic#1 
-	vm_version:int32 
-	vm_mode:uint64 
+wfmt_basic#1
+	vm_version:int32
+	vm_mode:uint64
 = WorkchainFormat 1;
 */
 
 ///
 /// Workchain format basic
-/// 
+///
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct WorkchainFormat1 {
     pub vm_version: i32,
@@ -1849,14 +1856,14 @@ pub struct WorkchainFormat1 {
 impl WorkchainFormat1 {
     ///
     /// Create empty intance of WorkchainFormat1
-    /// 
+    ///
     pub fn new() -> Self {
         WorkchainFormat1::default()
     }
 
     ///
     /// Create new instance of WorkchainFormat1
-    /// 
+    ///
     pub fn with_params(vm_version: i32, vm_mode: u64) -> Self {
         WorkchainFormat1 {
             vm_version,
@@ -1884,11 +1891,11 @@ impl Serializable for WorkchainFormat1 {
 
 
 /*
-wfmt_ext#0 
-	min_addr_len:(## 12) 
-	max_addr_len:(## 12) 
+wfmt_ext#0
+	min_addr_len:(## 12)
+	max_addr_len:(## 12)
 	addr_len_step:(## 12)
-  { min_addr_len >= 64 } { min_addr_len <= max_addr_len } 
+  { min_addr_len >= 64 } { min_addr_len <= max_addr_len }
   { max_addr_len <= 1023 } { addr_len_step <= 1023 }
   workchain_type_id:(## 32) { workchain_type_id >= 1 }
 = WorkchainFormat 0;
@@ -1911,7 +1918,7 @@ impl Default for WorkchainFormat0 {
 impl WorkchainFormat0 {
     ///
     /// Create empty new instance of WorkchainFormat0
-    /// 
+    ///
     pub const fn new() -> Self {
         Self {
             min_addr_len: Number12(64),
@@ -1923,7 +1930,7 @@ impl WorkchainFormat0 {
 
     ///
     /// Create new instance of WorkchainFormat0
-    /// 
+    ///
     pub fn with_params(min_addr_len: u16, max_addr_len: u16, addr_len_step: u16, workchain_type_id: u32 ) -> Result<WorkchainFormat0> {
         if min_addr_len >= 64 && min_addr_len <= max_addr_len &&
            max_addr_len <= 1023 && addr_len_step <= 1023 &&
@@ -1933,7 +1940,7 @@ impl WorkchainFormat0 {
                         min_addr_len: Number12(min_addr_len as u32),
                         max_addr_len: Number12(max_addr_len as u32),
                         addr_len_step: Number12(addr_len_step as u32),
-                        workchain_type_id: Number32(workchain_type_id as u32), 
+                        workchain_type_id: Number32(workchain_type_id as u32),
                    }
                )
            }
@@ -1950,14 +1957,14 @@ impl WorkchainFormat0 {
 
     ///
     /// Getter for min_addr_len
-    /// 
+    ///
     pub fn min_addr_len(&self) -> u16 {
         self.min_addr_len.0 as u16
     }
 
     ///
     /// Setter for min_addr_len
-    /// 
+    ///
     pub fn set_min_addr_len(&mut self, min_addr_len: u16) -> Result<()> {
         if (64..=1023).contains(&min_addr_len) {
             self.min_addr_len.0 = min_addr_len as u32;
@@ -1969,18 +1976,18 @@ impl WorkchainFormat0 {
                 )
             )
         }
-    }    
+    }
 
     ///
     /// Getter for min_addr_len
-    /// 
+    ///
     pub fn max_addr_len(&self) -> u16 {
         self.max_addr_len.0 as u16
     }
 
     ///
     /// Setter for max_addr_len
-    /// 
+    ///
     pub fn set_max_addr_len(&mut self, max_addr_len: u16) -> Result<()> {
         if (64..=1024).contains(&max_addr_len) && self.min_addr_len.0 <= max_addr_len as u32 {
             self.max_addr_len.0 = max_addr_len as u32;
@@ -1993,18 +2000,18 @@ impl WorkchainFormat0 {
                 )
             )
         }
-    }        
+    }
 
     ///
     /// Getter for addr_len_step
-    /// 
+    ///
     pub fn addr_len_step(&self) -> u16 {
         self.addr_len_step.0 as u16
     }
 
     ///
     /// Setter for min_addr_len
-    /// 
+    ///
     pub fn set_addr_len_step(&mut self, addr_len_step: u16) -> Result<()> {
         if addr_len_step <= 1024 {
             self.addr_len_step.0 = addr_len_step as u32;
@@ -2014,18 +2021,18 @@ impl WorkchainFormat0 {
                 BlockError::InvalidData("should: addr_len_step <= 1024".to_string())
             )
         }
-    }       
+    }
 
     ///
     /// Getter for workchain_type_id
-    /// 
+    ///
     pub fn workchain_type_id(&self) -> u32 {
         self.workchain_type_id.0
     }
 
     ///
     /// Setter for min_addr_len
-    /// 
+    ///
     pub fn set_workchain_type_id(&mut self, workchain_type_id: u32) -> Result<()> {
         if workchain_type_id >= 1 {
             self.workchain_type_id.0 = workchain_type_id;
@@ -2035,7 +2042,7 @@ impl WorkchainFormat0 {
                 BlockError::InvalidData("should: workchain_type_id >= 1".to_string())
             )
         }
-    } 
+    }
 }
 
 impl Deserializable for WorkchainFormat0 {
@@ -2088,32 +2095,32 @@ impl Serializable for WorkchainFormat0 {
 
 
 /*
-workchain#a5 
-	enabled_since:uint32 
+workchain#a5
+	enabled_since:uint32
 	min_split:(## 8)
 	 max_split:(## 8)
   { min_split <= max_split } { max_split <= 60 }
-  basic:(## 1) 
-	active:Bool 
-	accept_msgs:Bool 
+  basic:(## 1)
+	active:Bool
+	accept_msgs:Bool
 	flags:(## 13) { flags = 0 }
-  zerostate_root_hash:bits256 
+  zerostate_root_hash:bits256
 	zerostate_file_hash:bits256
-  version:uint32 
+  version:uint32
 	format:(WorkchainFormat basic)
 = WorkchainDescr;
 */
 
 ///
 /// WorkchainDescr structure
-/// 
+///
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct WorkchainDescr {
     pub enabled_since: u32,
     actual_min_split: u8,
     min_split: u8,
     max_split: u8,
-    //basic: bool, // depends on format 
+    //basic: bool, // depends on format
     pub active: bool,
     pub accept_msgs: bool,
     pub flags: u16, // 13 bit
@@ -2126,21 +2133,21 @@ pub struct WorkchainDescr {
 impl WorkchainDescr {
     ///
     /// Create empty instance of WorkchainDescr
-    /// 
+    ///
     pub fn new() -> Self {
         WorkchainDescr::default()
     }
 
     ///
     /// Getter for min_split
-    /// 
+    ///
     pub fn min_split(&self) -> u8 {
         self.min_split
     }
 
     ///
     /// Setter for min_split
-    /// 
+    ///
     pub fn set_min_split(&mut self, min_split: u8) -> Result<()> {
         if min_split <= 60 {
             self.min_split = min_split;
@@ -2152,25 +2159,25 @@ impl WorkchainDescr {
                 )
             )
         }
-    } 
+    }
 
     ///
     /// Getter for actual_min_split
-    /// 
+    ///
     pub fn actual_min_split(&self) -> u8 {
         self.actual_min_split
     }
 
     ///
     /// Getter for max_split
-    /// 
+    ///
     pub fn max_split(&self) -> u8 {
         self.max_split
     }
 
     ///
     /// Setter for max_split
-    /// 
+    ///
     pub fn set_max_split(&mut self, max_split: u8) -> Result<()> {
         if self.min_split <= max_split && max_split <= 60 {
             self.max_split = max_split;
@@ -2439,7 +2446,7 @@ define_HashmapE!{Workchains, 32, WorkchainDescr}
 
 ///
 /// ConfigParam 12 struct
-/// 
+///
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ConfigParam12 {
     pub workchains: Workchains,
@@ -2458,7 +2465,7 @@ impl ConfigParam12 {
     /// get length
     pub fn len(&self) -> Result<usize> {
         self.workchains.len()
-    } 
+    }
 
     /// get value by index
     pub fn get(&self, workchain_id: i32) -> Result<Option<WorkchainDescr>> {
@@ -2488,7 +2495,7 @@ impl Serializable for ConfigParam12 {
 
 ///
 /// ConfigParam 13 struct
-/// 
+///
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ConfigParam13 {
     pub cell: Cell,
@@ -2531,13 +2538,13 @@ impl ValidatorTempKey {
         Self::default()
     }
 
-    pub fn with_params(adnl_addr: UInt256, temp_public_key: SigPubKey, seqno: u32, valid_until: u32) 
+    pub fn with_params(adnl_addr: UInt256, temp_public_key: SigPubKey, seqno: u32, valid_until: u32)
         -> Self {
         Self {
             adnl_addr,
             temp_public_key,
             seqno,
-            valid_until 
+            valid_until
         }
     }
 
@@ -2620,7 +2627,7 @@ pub struct ValidatorSignedTempKey {
 
 impl ValidatorSignedTempKey {
 
-    /// new instance of 
+    /// new instance of
     pub fn with_key_and_signature(key: ValidatorTempKey, signature: CryptoSignature) -> Self {
         Self {key, signature}
     }
@@ -2662,7 +2669,7 @@ impl Serializable for ValidatorSignedTempKey {
 
 ///
 /// ConfigParam 39 struct
-/// 
+///
 // _ (HashmapE 256 ValidatorSignedTempKey) = ConfigParam 39;
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ConfigParam39 {
@@ -2686,8 +2693,8 @@ impl ConfigParam39 {
     pub fn get(&self, key: &UInt256) -> Result<ValidatorSignedTempKey> {
         self
             .validator_keys
-            .get(key)
-            .and_then(|vtk| vtk.ok_or_else(|| error!(BlockError::InvalidArg(key.to_hex_string()))))
+            .get(key)?
+            .ok_or_else(|| error!(BlockError::InvalidArg(format!("{:x}", key))))
     }
 
     /// insert value
@@ -2847,9 +2854,9 @@ impl ParamLimits {
     }
 
     fn set_limits(
-        limits: &mut [u32; LIMIT_COUNT], 
-        underload: u32, 
-        soft: u32, 
+        limits: &mut [u32; LIMIT_COUNT],
+        underload: u32,
+        soft: u32,
         hard: u32
     ) -> Result<()> {
         if underload > soft {

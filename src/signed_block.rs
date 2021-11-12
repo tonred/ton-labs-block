@@ -23,7 +23,7 @@ use std::collections::HashMap;
 use std::convert::TryInto;
 use std::io::{Write, Read, Cursor};
 use ton_types::{
-    BuilderData, error, fail, Result, SliceData,
+    BuilderData, fail, Result, SliceData,
     BagOfCells, deserialize_tree_of_cells,
     ExceptionCode, UInt256
 };
@@ -98,7 +98,7 @@ impl SignedBlock {
 
         pub fn with_block_and_key(block: Block, key: &ed25519_dalek::Keypair) -> Result<Self> {
 
-		// block serialization 
+		// block serialization
 		let block_root = block.serialize()?;
 		let bag = BagOfCells::with_root(&block_root);
 		let mut serialized_block = Vec::<u8>::new();
@@ -113,7 +113,7 @@ impl SignedBlock {
 		let mut hasher = sha2::Sha256::new();
 		hasher.update(combined_data.as_slice());
 		let combined_hash: [u8; 32] = hasher.finalize().into();
-		
+
 		let mut result = SignedBlock {
 			block,
 			block_repr_hash: block_root.repr_hash(),
@@ -126,7 +126,7 @@ impl SignedBlock {
 
 		Ok(result)
 	}
-	
+
 	pub fn block(&self) -> &Block {
 		&self.block
 	}
@@ -143,7 +143,7 @@ impl SignedBlock {
 	pub fn signatures(&self) -> &HashMap<u64, BlockSignature> {
 		&self.signatures
 	}
-	
+
 	pub fn add_signature(&mut self, key: &ed25519_dalek::Keypair) {
 		let signature = key.sign(self.combined_hash.as_slice());
 		let key = super::id_from_key(&key.public);
@@ -174,7 +174,7 @@ impl SignedBlock {
 		cell.append_reference_cell(block_absent_cell.clone().into_cell()?);
 		cell.append_reference_cell(self.signatures.serialize()?);
 
-		// Transfom tree into bag 
+		// Transfom tree into bag
 		let bag = BagOfCells::with_roots_and_absent(vec![&cell.into_cell()?], vec![&block_absent_cell.into_cell()?]);
 
 		// Write signed block's bytes and then unsigned block's bytes
@@ -200,7 +200,7 @@ impl SignedBlock {
 		// second - block's bytes
 		let mut serialized_block = Vec::new();
 		src.read_to_end(&mut serialized_block)?;
-				
+
 		let mut serialized_block_cur = Cursor::new(serialized_block);
 		let cell = deserialize_tree_of_cells(&mut serialized_block_cur)?;
 		let mut block = Block::default();
@@ -218,7 +218,7 @@ impl SignedBlock {
 
 		Ok(SignedBlock {
 			block,
-			block_repr_hash: block_repr_hash.into(), 
+			block_repr_hash: block_repr_hash.into(),
 			block_serialize_hash: serlz_hash.into(),
 			combined_hash,
 			serialized_block: serialized_block_cur.into_inner(),
@@ -248,16 +248,16 @@ impl SignedBlock {
 	fn largest_power_of_two_less_than(l: usize) -> usize {
 		let mut n = 1;
 		let mut l1 = l;
-		
+
 		while l1 != 1 {
 			l1 >>= 1;
 			n <<= 1;
 		}
-			
+
 		if n == l {
 			n / 2
 		} else {
 			n
-		}		
+		}
 	}
 }

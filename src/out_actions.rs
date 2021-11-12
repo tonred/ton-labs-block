@@ -19,7 +19,7 @@ use crate::{
 };
 use std::collections::LinkedList;
 use ton_types::{
-    error, fail, Result,
+    fail, Result,
     UInt256, BuilderData, Cell, IBitstring, SliceData,
 };
 
@@ -40,13 +40,13 @@ action_set_code#ad4de08e new_code:^Cell = OutAction;
 
 ///
 /// List of output actions
-/// 
+///
 pub type OutActions = LinkedList<OutAction>;
 
 
 ///
 /// Implementation of Serializable for OutActions
-/// 
+///
 impl Serializable for OutActions {
     fn write_to(&self, cell: &mut BuilderData) -> Result<()> {
 
@@ -69,7 +69,7 @@ impl Serializable for OutActions {
 
 ///
 /// Implementation of Deserializable for OutActions
-/// 
+///
 impl Deserializable for OutActions {
     fn read_from(&mut self, cell: &mut SliceData) -> Result<()> {
         let mut cell = cell.clone();
@@ -91,13 +91,13 @@ impl Deserializable for OutActions {
 
 ///
 /// Enum OutAction
-/// 
+///
 #[derive(Clone, Debug, PartialEq)]
 pub enum OutAction {
-    
+
     ///
     /// Action for send message
-    /// 
+    ///
     SendMsg {
         mode: u8,
         out_msg: Message,
@@ -105,18 +105,18 @@ pub enum OutAction {
 
     ///
     /// Action for set new code of smart-contract
-    /// 
+    ///
     SetCode {
         new_code: Cell,
     },
 
     ///
     /// Action for reserving some account balance.
-    /// It is roughly equivalent to creating an output 
+    /// It is roughly equivalent to creating an output
     /// message carrying x nanograms to oneself,so that
     /// the subsequent output actions would not be able
     /// to spend more money than the remainder.
-    /// 
+    ///
     ReserveCurrency {
         mode: u8,
         value: CurrencyCollection,
@@ -124,7 +124,7 @@ pub enum OutAction {
 
     ///
     /// Action for change library.
-    /// 
+    ///
     ChangeLibrary {
         mode: u8,
         code: Option<Cell>,
@@ -148,9 +148,9 @@ pub const SENDMSG_DELETE_IF_EMPTY: u8 = 32;
 pub const SENDMSG_REMAINING_MSG_BALANCE: u8 = 64;
 pub const SENDMSG_ALL_BALANCE: u8 = 128;
 //mask for cheking valid flags
-pub const SENDMSG_VALID_FLAGS: u8 = 
-    SENDMSG_ORDINARY 
-    | SENDMSG_PAY_FEE_SEPARATELY 
+pub const SENDMSG_VALID_FLAGS: u8 =
+    SENDMSG_ORDINARY
+    | SENDMSG_PAY_FEE_SEPARATELY
     | SENDMSG_IGNORE_ERROR
     | SENDMSG_DELETE_IF_EMPTY
     | SENDMSG_REMAINING_MSG_BALANCE
@@ -171,38 +171,38 @@ pub const RESERVE_VALID_MODES: u8 =
 
 pub const CHANGE_LIB_REMOVE: u8 = 0;
 pub const SET_LIB_CODE_REMOVE: u8 = 1;
-pub const SET_LIB_CODE_ADD_PRIVATE: u8 = 1 * 2 + 1;
+pub const SET_LIB_CODE_ADD_PRIVATE: u8 = 2 + 1;
 pub const SET_LIB_CODE_ADD_PUBLIC: u8 = 2 * 2 + 1;
 
 ///
 /// Implementation of Output Actions
-/// 
+///
 impl OutAction {
 
     ///
     /// Create new instance OutAction::ActionSend
-    /// 
+    ///
     pub fn new_send(mode: u8, out_msg: Message) -> Self {
         OutAction::SendMsg { mode, out_msg }
     }
 
     ///
     /// Create new instance OutAction::ActionCode
-    /// 
+    ///
     pub fn new_set(new_code: Cell) -> Self {
         OutAction::SetCode { new_code }
     }
 
     ///
     /// Create new instance OutAction::ReserveCurrency
-    /// 
+    ///
     pub fn new_reserve(mode: u8, value: CurrencyCollection) -> Self {
         OutAction::ReserveCurrency { mode, value }
     }
 
     ///
     /// Create new instance OutAction::ChangeLibrary
-    /// 
+    ///
     pub fn new_change_library(mode: u8, code: Option<Cell>, hash: Option<UInt256>) -> Self {
         debug_assert!(match mode {
             CHANGE_LIB_REMOVE => code.is_none() && hash.is_some(),
@@ -272,7 +272,7 @@ impl Deserializable for OutAction {
                 let mut value = CurrencyCollection::default();
                 mode.read_from(cell)?;
                 value.read_from(cell)?;
-                *self = OutAction::new_reserve(mode, value); 
+                *self = OutAction::new_reserve(mode, value);
             }
             ACTION_CHANGE_LIB => {
                 let mut mode = 0u8;

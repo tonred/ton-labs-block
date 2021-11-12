@@ -169,6 +169,12 @@ pub trait Deserializable: Default {
         x.read_from(slice)?;
         Ok(x)
     }
+    fn construct_maybe_from(slice: &mut SliceData) -> Result<Option<Self>> {
+        match slice.get_next_bit()? {
+            true => Ok(Some(Self::construct_from(slice)?)),
+            false => Ok(None)
+        }
+    }
     fn construct_from_cell(cell: Cell) -> Result<Self> {
         Self::construct_from(&mut cell.into())
     }
@@ -310,7 +316,7 @@ impl Deserializable for () {
         if cell.remaining_bits() == 0 && cell.remaining_references() == 0 {
             Ok(())
         } else {
-            fail!("It must be True by TLB, but some data is present: {}", cell.to_hex_string())
+            fail!("It must be True by TLB, but some data is present: {:x}", cell)
         }
     }
 }
@@ -323,7 +329,7 @@ impl Serializable for () {
 
 pub fn id_from_key(key: &ed25519_dalek::PublicKey) -> u64 {
     let bytes = key.to_bytes();
-    u64::from_be_bytes([ 
+    u64::from_be_bytes([
         bytes[0], bytes[1], bytes[2], bytes[3],
         bytes[4], bytes[5], bytes[6], bytes[7],
     ])

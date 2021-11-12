@@ -14,7 +14,7 @@
 use crate::{
     define_HashmapE,
     error::BlockError,
-    signature::SigPubKey,
+    signature::{CryptoSignature, SigPubKey},
     types::{Number16, UnixTime32},
     Serializable, Deserializable,
     config_params::CatchainConfig,
@@ -30,13 +30,13 @@ use sha2::{Sha256, Sha512, Digest};
 use ton_types::types::ByteOrderRead;
 use crc::{crc32, Hasher32};
 use ton_types::{
-    error, fail, Result,
+    fail, Result,
     UInt256, BuilderData, Cell, HashmapE, HashmapType, IBitstring, SliceData,
 };
 
 /*
 validator_info$_
-  validator_list_hash_short:uint32 
+  validator_list_hash_short:uint32
   catchain_seqno:uint32
   nx_cc_updated:Bool
 = ValidatorInfo;
@@ -60,9 +60,9 @@ impl ValidatorInfo {
     }
 
     pub fn with_params(
-        validator_list_hash_short: u32, 
-        catchain_seqno: u32, 
-        nx_cc_updated: bool) -> Self 
+        validator_list_hash_short: u32,
+        catchain_seqno: u32,
+        nx_cc_updated: bool) -> Self
     {
         ValidatorInfo {
             validator_list_hash_short,
@@ -94,14 +94,14 @@ impl Deserializable for ValidatorInfo {
 
 /*
 validator_base_info$_
-  validator_list_hash_short:uint32 
+  validator_list_hash_short:uint32
   catchain_seqno:uint32
 = ValidatorBaseInfo;
 */
 
 ///
 /// ValidatorBaseInfo
-/// 
+///
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct ValidatorBaseInfo {
     pub validator_list_hash_short: u32,
@@ -117,7 +117,7 @@ impl ValidatorBaseInfo {
     }
 
     pub fn with_params(
-        validator_list_hash_short: u32, 
+        validator_list_hash_short: u32,
         catchain_seqno: u32
     ) -> Self {
         ValidatorBaseInfo {
@@ -146,18 +146,18 @@ impl Deserializable for ValidatorBaseInfo {
 
 
 /*
-validator#53 
-    public_key:SigPubKey 
-    weight:uint64 
+validator#53
+    public_key:SigPubKey
+    weight:uint64
 = ValidatorDescr;
 */
 
 ///
 /// ValidatorDescr
-/// 
+///
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct ValidatorDescr {
-    pub public_key: SigPubKey, 
+    pub public_key: SigPubKey,
     pub weight: u64,
     pub adnl_addr: Option<UInt256>,
 
@@ -177,9 +177,9 @@ impl ValidatorDescr {
     }
 
     pub fn with_params(
-        public_key: SigPubKey, 
+        public_key: SigPubKey,
         weight: u64,
-        adnl_addr: Option<UInt256>) -> Self 
+        adnl_addr: Option<UInt256>) -> Self
     {
         ValidatorDescr {
             public_key,
@@ -194,8 +194,15 @@ impl ValidatorDescr {
         let mut hasher = Sha256::new();
         let magic = [0xc6, 0xb4, 0x13, 0x48]; // magic 0x4813b4c6 from original node's code
         hasher.update(&magic);
-        hasher.update(self.public_key.key_bytes());
+        hasher.update(self.public_key.as_slice());
         From::<[u8; 32]>::from(hasher.finalize().into())
+    }
+
+    pub fn verify_signature(&self, data: &[u8], signature: &CryptoSignature) -> bool {
+        match SigPubKey::from_bytes(self.public_key.as_slice()) {
+            Ok(pub_key) => pub_key.verify_signature(data, signature),
+            _ => false
+        }
     }
 }
 
@@ -239,25 +246,25 @@ impl Deserializable for ValidatorDescr {
 }
 
 /*
-validators#11 
-    utime_since:uint32 
-    utime_until:uint32 
-    total:(## 16) 
-    main:(## 16) 
-    { main <= total } 
-    { main >= 1 } 
-    list:(Hashmap 16 ValidatorDescr) 
+validators#11
+    utime_since:uint32
+    utime_until:uint32
+    total:(## 16)
+    main:(## 16)
+    { main <= total }
+    { main >= 1 }
+    list:(Hashmap 16 ValidatorDescr)
 = ValidatorSet;
 
-validators_ext#12 
-    utime_since:uint32 
-    utime_until:uint32 
-    total:(## 16) 
-    main:(## 16) 
-    { main <= total } 
-    { main >= 1 } 
-    total_weight:uint64 
-    list:(HashmapE 16 ValidatorDescr) 
+validators_ext#12
+    utime_since:uint32
+    utime_until:uint32
+    total:(## 16)
+    main:(## 16)
+    { main <= total }
+    { main >= 1 }
+    total_weight:uint64
+    list:(HashmapE 16 ValidatorDescr)
 = ValidatorSet;
 */
 
@@ -265,22 +272,28 @@ define_HashmapE!{ValidatorDescriptions, 16, ValidatorDescr}
 
 ///
 /// ValidatorSet
-/// 
+///
 #[derive(Clone, Default, Debug, Eq, PartialEq)]
 pub struct ValidatorSet {
     utime_since: u32,
-    utime_until: u32, 
-    total: Number16, 
+    utime_until: u32,
+    total: Number16,
     main: Number16,
     total_weight: u64,
     cc_seqno: u32,
     list: Vec<ValidatorDescr>, //ValidatorDescriptions,
 }
 
-#[derive(Eq, PartialEq, PartialOrd, Debug)]
+#[derive(Eq, PartialEq, Debug)]
 struct IncludedValidatorWeight {
     pub prev_weight_sum: u64,
     pub weight: u64,
+}
+
+impl PartialOrd for IncludedValidatorWeight {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 impl Ord for IncludedValidatorWeight {
@@ -298,8 +311,8 @@ impl ValidatorSet {
     pub const fn default() -> Self {
         Self {
             utime_since: 0,
-            utime_until: 0, 
-            total: Number16::default(), 
+            utime_until: 0,
+            total: Number16::default(),
             main: Number16::default(),
             total_weight: 0,
             cc_seqno: 0,
@@ -308,7 +321,7 @@ impl ValidatorSet {
     }
     pub fn new(
         utime_since: u32,
-        utime_until: u32, 
+        utime_until: u32,
         main: u16,
         mut list: Vec<ValidatorDescr>
     ) -> Result<Self> {
@@ -324,18 +337,18 @@ impl ValidatorSet {
         }
         Ok(ValidatorSet {
             utime_since,
-            utime_until, 
-            total: Number16(list.len() as u32), 
-            main: Number16(main as u32), 
+            utime_until,
+            total: Number16(list.len() as u32),
+            main: Number16(main as u32),
             total_weight,
             cc_seqno: 0,
-            list, 
+            list,
         })
     }
 
     pub fn with_cc_seqno(
         utime_since: u32,
-        utime_until: u32, 
+        utime_until: u32,
         main: u16,
         cc_seqno: u32,
         list: Vec<ValidatorDescr>
@@ -390,10 +403,10 @@ impl ValidatorSet {
     }
 
     pub fn calc_subset(
-        &self, 
-        cc_config: &CatchainConfig, 
-        shard_pfx: u64, 
-        workchain_id: i32, 
+        &self,
+        cc_config: &CatchainConfig,
+        shard_pfx: u64,
+        workchain_id: i32,
         cc_seqno: u32,
         _time: UnixTime32
     ) -> Result<(Vec<ValidatorDescr>, u32)> {
@@ -481,7 +494,7 @@ impl ValidatorSet {
             subset
         };
 
-        let hash_short = Self::calc_subset_hash_short(&subset, cc_seqno)?;
+        let hash_short = Self::calc_subset_hash_short(subset.as_slice(), cc_seqno)?;
 
         Ok((subset, hash_short))
     }
@@ -494,7 +507,7 @@ impl ValidatorSet {
         hasher.write(&cc_seqno.to_le_bytes());
         hasher.write(&(subset.len() as u32).to_le_bytes());
         for vd in subset.iter() {
-            hasher.write(vd.public_key.key_bytes());
+            hasher.write(vd.public_key.as_slice());
             hasher.write(&vd.weight.to_le_bytes());
             if let Some(addr) = vd.adnl_addr.as_ref() {
                 hasher.write(addr.as_slice());
@@ -552,7 +565,7 @@ impl Deserializable for ValidatorSet {
         self.list.clear();
         let mut total_weight = 0;
         for i in 0..self.total.0 {
-            let mut val = validators.get(&(i as u16))?.ok_or_else(|| 
+            let mut val = validators.get(&(i as u16))?.ok_or_else(||
                 BlockError::InvalidData(format!("Validator's hash map doesn't \
                     contain validator with index {}", i)))?;
             val.prev_weight_sum = total_weight;
@@ -560,14 +573,12 @@ impl Deserializable for ValidatorSet {
             self.list.push(val);
         }
         if self.list.is_empty() {
-            anyhow::bail!(BlockError::InvalidData("list can't be empty".to_string()));
+            fail!(BlockError::InvalidData("list can't be empty".to_string()));
         }
         if tag == VALIDATOR_SET_TAG {
             self.total_weight = self.list.iter().map(|vd| vd.weight).sum();
         } else if self.total_weight != total_weight {
-            anyhow::bail!(
-                BlockError::InvalidData("Calculated total_weight is not equal to the read one while read ValidatorSet".to_string())
-            )
+            fail!(BlockError::InvalidData("Calculated total_weight is not equal to the read one while read ValidatorSet".to_string()))
         }
 
         if self.main > self.total {

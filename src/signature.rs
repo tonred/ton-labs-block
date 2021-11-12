@@ -25,18 +25,18 @@ use std::{
     str::FromStr
 };
 use ton_types::{
-    error, fail, Result,
+    fail, Result,
     UInt256,
     BuilderData, Cell, IBitstring, SliceData, HashmapE, HashmapType
 };
 
 /*
-ed25519_signature#5 R:bits256 s:bits256 = CryptoSignature; 
+ed25519_signature#5 R:bits256 s:bits256 = CryptoSignature;
 */
 
 ///
 /// CryptoSignature
-/// 
+///
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CryptoSignature(ed25519::Signature);
 
@@ -146,7 +146,7 @@ sig_pair$_ node_id_short:bits256 sign:CryptoSignature = CryptoSignaturePair;
 */
 ///
 /// CryptoSignaturePair
-/// 
+///
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct CryptoSignaturePair {
     pub node_id_short: UInt256,
@@ -162,8 +162,8 @@ impl CryptoSignaturePair {
     }
 
     pub fn with_params(
-        node_id_short: UInt256, 
-        sign: CryptoSignature) -> Self 
+        node_id_short: UInt256,
+        sign: CryptoSignature) -> Self
     {
         CryptoSignaturePair {
             node_id_short,
@@ -194,7 +194,7 @@ ed25519_pubkey#8e81278a pubkey:bits256 = SigPubKey;
 
 ///
 /// SigPubKey
-/// 
+///
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct SigPubKey(ed25519_dalek::PublicKey);
 
@@ -220,6 +220,28 @@ impl SigPubKey {
 
     pub fn verify_signature(&self, data: &[u8], signature: &CryptoSignature) -> bool {
         self.0.verify(data, signature.signature()).is_ok()
+    }
+
+    pub fn as_slice(&self) -> &[u8; 32] {
+        self.0.as_bytes()
+    }
+}
+
+impl PartialEq<UInt256> for SigPubKey {
+    fn eq(&self, other: &UInt256) -> bool {
+        self.as_slice() == other.as_slice()
+    }
+}
+
+impl AsRef<[u8]> for SigPubKey {
+    fn as_ref(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
+
+impl AsRef<[u8; 32]> for SigPubKey {
+    fn as_ref(&self) -> &[u8; 32] {
+        self.as_slice()
     }
 }
 
@@ -250,7 +272,7 @@ impl Deserializable for SigPubKey {
                 BlockError::InvalidConstructorTag {
                     t: tag,
                     s: "SigPubKey".to_string()
-                } 
+                }
             )
         }
         let key_buf = cell.get_next_bits(ed25519_dalek::PUBLIC_KEY_LENGTH * 8)?;
@@ -264,16 +286,16 @@ impl Deserializable for SigPubKey {
 */
 
 /*
-block_signatures_pure#_ 
-    sig_count:uint32 
+block_signatures_pure#_
+    sig_count:uint32
     sig_weight:uint64
-    signatures:(HashmapE 16 CryptoSignaturePair) 
+    signatures:(HashmapE 16 CryptoSignaturePair)
 = BlockSignaturesPure;
 */
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BlockSignaturesPure {
-    sig_count: u32, 
-    sig_weight: u64, 
+    sig_count: u32,
+    sig_weight: u64,
     signatures: HashmapE,
 }
 
@@ -292,7 +314,7 @@ impl BlockSignaturesPure {
     pub fn new() -> Self {
         BlockSignaturesPure::default()
     }
-    
+
     /// New instance of BlockSignaturesPure
     pub fn with_weight(weight: u64) -> Self {
         BlockSignaturesPure {
@@ -339,7 +361,7 @@ impl BlockSignaturesPure {
         self.signatures().iterate_slices(|ref mut _key, ref mut slice| {
             let sign = CryptoSignaturePair::construct_from(slice)?;
             if let Some(vd) = validators_map.get(&sign.node_id_short) {
-                if !vd.public_key.verify_signature(data, &sign.sign) {
+                if !vd.verify_signature(data, &sign.sign) {
                     fail!(BlockError::BadSignature)
                 }
                 weight += vd.weight;
@@ -352,8 +374,8 @@ impl BlockSignaturesPure {
 
 impl Serializable for BlockSignaturesPure {
     fn write_to(&self, cell: &mut BuilderData) -> Result<()> {
-        self.sig_count.write_to(cell)?; 
-        self.sig_weight.write_to(cell)?; 
+        self.sig_count.write_to(cell)?;
+        self.sig_weight.write_to(cell)?;
         self.signatures.write_to(cell)?;
         Ok(())
     }
@@ -361,23 +383,23 @@ impl Serializable for BlockSignaturesPure {
 
 impl Deserializable for BlockSignaturesPure {
     fn read_from(&mut self, cell: &mut SliceData) -> Result<()> {
-        self.sig_count.read_from(cell)?; 
-        self.sig_weight.read_from(cell)?; 
+        self.sig_count.read_from(cell)?;
+        self.sig_weight.read_from(cell)?;
         self.signatures.read_from(cell)?;
         Ok(())
     }
 }
 
 /*
-block_signatures#11 
-    validator_info:ValidatorBaseInfo 
-    pure_signatures:BlockSignaturesPure 
+block_signatures#11
+    validator_info:ValidatorBaseInfo
+    pure_signatures:BlockSignaturesPure
 = BlockSignatures;
 */
 
 ///
 /// BlockSignatures
-/// 
+///
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct BlockSignatures {
     pub validator_info: ValidatorBaseInfo,
@@ -410,7 +432,7 @@ const BLOCK_SIGNATURES_TAG: u8 = 0x11;
 impl Serializable for BlockSignatures {
     fn write_to(&self, cell: &mut BuilderData) -> Result<()> {
         cell.append_u8(BLOCK_SIGNATURES_TAG)?;
-        self.validator_info.write_to(cell)?; 
+        self.validator_info.write_to(cell)?;
         self.pure_signatures.write_to(cell)?;
         Ok(())
     }
@@ -427,23 +449,23 @@ impl Deserializable for BlockSignatures {
                 }
             )
         }
-        self.validator_info.read_from(cell)?; 
+        self.validator_info.read_from(cell)?;
         self.pure_signatures.read_from(cell)?;
         Ok(())
     }
 }
 
 /*
-block_proof#c3 
-    proof_for:BlockIdExt 
-    root:^Cell 
-    signatures:(Maybe ^BlockSignatures) 
+block_proof#c3
+    proof_for:BlockIdExt
+    root:^Cell
+    signatures:(Maybe ^BlockSignatures)
 = BlockProof;
 */
 
 ///
 /// BlockProof
-/// 
+///
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct BlockProof {
     pub proof_for: BlockIdExt,
@@ -462,7 +484,7 @@ impl BlockProof {
     }
 
     /// Create new instance of BlockProof
-    pub fn with_params(    
+    pub fn with_params(
         proof_for: BlockIdExt,
         root: Cell,
         signatures: Option<BlockSignatures>
@@ -471,7 +493,7 @@ impl BlockProof {
             proof_for,
             root,
             signatures,
-        }        
+        }
     }
 }
 
@@ -498,12 +520,12 @@ impl Deserializable for BlockProof {
         if tag != BLOCK_PROOF_TAG {
             fail!(
                 BlockError::InvalidConstructorTag {
-                    t: tag as u32, 
+                    t: tag as u32,
                     s: "BlockProof".to_string()
                 }
             )
         }
-        self.proof_for.read_from(cell)?; 
+        self.proof_for.read_from(cell)?;
         self.root = cell.checked_drain_reference()?;
         self.signatures = if cell.get_next_bit()? {
             Some(BlockSignatures::construct_from_reference(cell)?)

@@ -17,7 +17,7 @@ use crate::{
 };
 use std::collections::{HashMap, HashSet};
 use ton_types::{
-    error, fail, Result,
+    fail, Result,
     BagOfCells,
     UInt256,
     BuilderData, Cell, CellType, IBitstring, LevelMask, SliceData,
@@ -77,7 +77,7 @@ impl Deserializable for MerkleUpdate {
         if self.new_hash != Cell::hash(&self.new, 0) {
             fail!(
                 BlockError::WrongMerkleUpdate(
-                    "Stored new hash is not equal calculated one".to_string() 
+                    "Stored new hash is not equal calculated one".to_string()
                 )
             )
         }
@@ -91,7 +91,7 @@ impl Deserializable for MerkleUpdate {
         if self.new_depth != Cell::depth(&self.new, 0) {
             fail!(
                 BlockError::WrongMerkleUpdate(
-                    "Stored new depth is not equal calculated one".to_string() 
+                    "Stored new depth is not equal calculated one".to_string()
                 )
              )
         }
@@ -176,7 +176,7 @@ impl MerkleUpdate {
             let pruned_branches = pruned_branches.unwrap();
 
             let mut used_paths_cells = HashSet::new();
-            if Self::collect_used_paths_cells(old, &is_visited_old, &pruned_branches, 
+            if Self::collect_used_paths_cells(old, &is_visited_old, &pruned_branches,
                 &mut HashSet::new(), &mut used_paths_cells) {
                 used_paths_cells.insert(old.repr_hash());
             }
@@ -287,16 +287,16 @@ impl MerkleUpdate {
         merkle_depth: u8
     ) -> Result<Cell> {
 
-        // We will recursively construct new skeleton for new cells 
+        // We will recursively construct new skeleton for new cells
         // and connect unchanged branches to it
 
         let mut new_cell = BuilderData::new();
         new_cell.set_type(update_cell.cell_type());
 
-        let child_merkle_depth = if update_cell.is_merkle() { 
-            merkle_depth + 1 
-        } else { 
-            merkle_depth 
+        let child_merkle_depth = if update_cell.is_merkle() {
+            merkle_depth + 1
+        } else {
+            merkle_depth
         };
 
         // traverse references
@@ -347,7 +347,7 @@ impl MerkleUpdate {
     }
 
     fn traverse_new_on_create(
-            new_cell: &Cell, 
+            new_cell: &Cell,
             common_pruned: &HashMap<UInt256, Cell>) -> Result<BuilderData> {
 
         let mut new_update_cell = BuilderData::new();
@@ -371,7 +371,7 @@ impl MerkleUpdate {
 
     // If old_cell's child contains in new_cells - it transformed to pruned branch cell,
     //   else - recursion call for the child.
-    // If any child is pruned branch (or contains pruned branch among their subtree) 
+    // If any child is pruned branch (or contains pruned branch among their subtree)
     //   - all other skipped childs are transformed to pruned branches
     //   else - skip this cell (return None)
     fn traverse_old_on_create(
@@ -405,11 +405,12 @@ impl MerkleUpdate {
             let mut old_update_cell = BuilderData::new();
             let mut child_mask = LevelMask::with_mask(0);
             for (i, child_opt) in childs.into_iter().enumerate() {
-                let child = if let Some(child_opt) = child_opt {
-                    child_opt
-                } else {
-                    let child = &old_cell.reference(i).unwrap();
-                    Self::make_pruned_branch_cell(child, 0)?
+                let child = match child_opt {
+                    None => {
+                        let child = old_cell.reference(i).unwrap();
+                        Self::make_pruned_branch_cell(&child, 0)?
+                    }
+                    Some(child) => child
                 };
                 child_mask |= child.level_mask();
                 old_update_cell.append_reference_cell(child.into_cell()?);
@@ -426,7 +427,7 @@ impl MerkleUpdate {
 
     fn add_one_hash(cell: &Cell, depth: u8) -> Result<LevelMask> {
         let mask = cell.level_mask().mask();
-        if depth > 2 { 
+        if depth > 2 {
             fail!(BlockError::InvalidArg("depth".to_string()))
         } else if mask & (1 << depth) != 0 {
             fail!(
@@ -438,7 +439,7 @@ impl MerkleUpdate {
         Ok(LevelMask::with_mask(mask | (1 << depth)))
     }
 
-    pub(crate) fn make_pruned_branch_cell(cell: &Cell, merkle_depth: u8) 
+    pub(crate) fn make_pruned_branch_cell(cell: &Cell, merkle_depth: u8)
         -> Result<BuilderData> {
 
         let mut result = BuilderData::new();

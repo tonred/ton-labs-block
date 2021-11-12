@@ -21,7 +21,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use num::{BigInt, BigUint, bigint::Sign, One, Zero};
 use num_traits::cast::ToPrimitive;
-use ton_types::{error, fail, Result,
+use ton_types::{fail, Result,
     BuilderData, Cell, CellType, IBitstring, HashmapE, HashmapType, SliceData, ExceptionCode, UInt256
 };
 
@@ -35,11 +35,11 @@ use crate::{
 
 ///
 /// var_uint$_ {n:#} len:(#< n) value:(uint (len * 8)) = VarUInteger n;
-/// 
+///
 
 /// var_int$_ {n:#} len:(#< n) value:(int (len * 8)) = VarInteger n;
 /// nanograms$_ amount:(VarUInteger 16) = Grams;
-/// 
+///
 /// If one wants to represent x nanograms, one selects an integer l < 16 such
 /// that x < 2^8*l, and serializes first l as an unsigned 4-bit integer, then x itself
 /// as an unsigned 8`-bit integer. Notice that four zero bits represent a zero
@@ -47,7 +47,7 @@ use crate::{
 
 macro_rules! define_VarIntegerN {
     ( $varname:ident, $N:expr, BigInt ) => {
-        #[derive( Eq, Hash, Clone, Debug)]
+        #[derive( Eq, Clone, Debug)]
         pub struct $varname(pub BigInt);
 
         #[allow(dead_code)]
@@ -99,7 +99,7 @@ macro_rules! define_VarIntegerN {
                 }
             }
 
-            // determine the size of the len field, using the formula from 3.3.4 VM 
+            // determine the size of the len field, using the formula from 3.3.4 VM
             fn get_len_len() -> usize {
                 let max_bits = ($N - 1) as f64;
                 max_bits.log2() as usize + 1
@@ -199,7 +199,7 @@ macro_rules! define_VarIntegerN {
         }
     };
     ( $varname:ident, $N:expr, $tt:ty ) => {
-        #[derive( Eq, Hash, Clone, Debug, Default, Ord, PartialEq, PartialOrd)]
+        #[derive( Eq, Clone, Debug, Default, Ord, PartialEq, PartialOrd)]
         pub struct $varname(pub $tt);
 
         impl $varname {
@@ -377,7 +377,7 @@ macro_rules! define_NumberN_up32bit {
             pub fn from_u32(value: u32, max_value: u32) -> Result<Self> {
                 if value > max_value {
                     fail!(BlockError::InvalidArg(
-                        format!("value: {} must be <= {}", value, max_value) 
+                        format!("value: {} must be <= {}", value, max_value)
                     ))
                 }
                 Ok($varname(value))
@@ -961,7 +961,7 @@ impl From<u32> for UnixTime32 {
 impl Serializable for UnixTime32 {
     fn write_to(&self, cell: &mut BuilderData) -> Result<()>{
         self.0.write_to(cell)
-    } 
+    }
 }
 
 impl Deserializable for UnixTime32 {

@@ -37,11 +37,11 @@ by a cell reference.
 
 
 /////////////////////////////////////////////////////////////////////
-/// 
+///
 /// interm_addr_regular$0 use_dest_bits:(#<= 96) = IntermediateAddress;
 /// interm_addr_simple$10 workchain_id:int8 addr_pfx:(64 * Bit) = IntermediateAddress;
 /// interm_addr_ext$11 workchain_id:int32 addr_pfx:(64 * Bit) = IntermediateAddress;
-/// 
+///
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum IntermediateAddress {
@@ -168,9 +168,9 @@ impl Deserializable for IntermediateAddress{
 }
 
 /////////////////////////////////////////////////////////////////
-/// 
+///
 /// interm_addr_regular$0 use_dest_bits:(#<= 96) = IntermediateAddress;
-/// 
+///
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct IntermediateAddressRegular {
@@ -247,9 +247,9 @@ impl Deserializable for IntermediateAddressRegular{
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////
-/// 
+///
 /// interm_addr_simple$10 workchain_id:int8 addr_pfx:(64 * Bit) = IntermediateAddress;
-/// 
+///
 
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
@@ -307,9 +307,9 @@ impl Deserializable for IntermediateAddressSimple{
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////
-/// 
+///
 /// interm_addr_ext$11 workchain_id:int32 addr_pfx:(64 * Bit) = IntermediateAddress;
-/// 
+///
 
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
@@ -366,12 +366,12 @@ impl Deserializable for IntermediateAddressExt {
     }
 }
 
-// msg_envelope#4 
-//   cur_addr:IntermediateAddress 
+// msg_envelope#4
+//   cur_addr:IntermediateAddress
 //   next_addr:IntermediateAddress
-//   fwd_fee_remaining:Grams 
-//   msg:^(Message Any) 
-// = MsgEnvelope; 
+//   fwd_fee_remaining:Grams
+//   msg:^(Message Any)
+// = MsgEnvelope;
 #[derive(Clone, Default, Debug, Eq, PartialEq)]
 pub struct MsgEnvelope {
     cur_addr: IntermediateAddress,
@@ -519,13 +519,13 @@ impl MsgEnvelope {
     /// is message route in one workchain
     pub fn same_workchain(&self) -> Result<bool> {
         let msg = self.read_message()?;
-        debug_assert!(msg.is_internal(), "Message with hash {} is not internal",
-            self.message_cell().repr_hash().to_hex_string());
+        debug_assert!(msg.is_internal(), "Message with hash {:x} is not internal",
+                      self.message_cell().repr_hash());
         if let (Some(src), Some(dst)) = (msg.src_ref(), msg.dst_ref()) {
             return Ok(src.get_workchain_id() == dst.get_workchain_id())
         }
-        fail!("Message with hash {} has wrong type of src/dst address",
-            self.message_cell().repr_hash().to_hex_string())
+        fail!("Message with hash {:x} has wrong type of src/dst address",
+            self.message_cell().repr_hash())
     }
 }
 
