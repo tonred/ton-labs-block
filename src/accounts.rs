@@ -375,12 +375,23 @@ impl AccountStorage {
         Self::with_params(0, balance, AccountState::AccountUninit)
     }
     /// Construct storage for active account
+    #[deprecated]
     pub fn active(last_trans_lt: u64, balance: CurrencyCollection, state_init: StateInit) -> Self {
-        Self::with_params(last_trans_lt, balance, AccountState::AccountActive(state_init))
+        let init_code_hash = None;
+        Self::with_params(last_trans_lt, balance, AccountState::AccountActive { init_code_hash, state_init })
+    }
+    /// Construct storage for active account
+    pub fn active_by_init_code_hash(last_trans_lt: u64, balance: CurrencyCollection, state_init: StateInit, init_code_hash: bool) -> Self {
+        let init_code_hash = match init_code_hash {
+            true => state_init.code().map(|code| code.repr_hash()),
+            false => None
+        };
+        Self::with_params(last_trans_lt, balance, AccountState::AccountActive { init_code_hash, state_init })
     }
     /// Construct storage for frozen account
-    pub fn frozen(last_trans_lt: u64, balance: CurrencyCollection, state_hash: UInt256) -> Self {
-        Self::with_params(last_trans_lt, balance, AccountState::AccountFrozen(state_hash))
+    pub fn frozen(last_trans_lt: u64, balance: CurrencyCollection, state_init_hash: UInt256) -> Self {
+        let init_code_hash = None;
+        Self::with_params(last_trans_lt, balance, AccountState::AccountFrozen { init_code_hash, state_init_hash })
     }
     /// Construct storage for uninit account with balance
     pub fn with_balance(balance: CurrencyCollection) -> Self { Self::unint(balance) }
@@ -447,39 +458,27 @@ impl fmt::Display for AccountStorage {
 /// account_active$1 _:StateInit = AccountState;
 /// account_frozen$01 state_hash:uint256 = AccountState;
 ///
+/// We want to store initial code hash in account storage
+/// So we need to patch TLB scheme
+/// But we cannot modify TLB to support old and new formats of Accounts
+/// now we write account in original format if init_code_hash was not set
+/// and patch format in it is present:
+/// account_active$0000 init_code_hash:uint256 _:StateInit = AccountState;
+/// account_frozen$0001 init_code_hash:uint256 state_hash:uint256 = AccountState;
+/// if we want to modify this format we can use third bit as 1 and write new info
+/// account_something_new$001 = AccountState;
+///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AccountState {
     AccountUninit,
-    AccountActive(StateInit),
-    AccountFrozen(UInt256),
-}
-
-impl AccountState {
-    pub fn with_hash(hash: UInt256) -> Self {
-        AccountState::AccountFrozen(hash)
-    }
-
-    pub fn with_state(state_init: StateInit) -> Self {
-        AccountState::AccountActive(state_init)
-    }
+    AccountActive{init_code_hash: Option<UInt256>, state_init: StateInit},
+    AccountFrozen{init_code_hash: Option<UInt256>, state_init_hash: UInt256},
 }
 
 impl Default for AccountState {
     fn default() -> Self {
         AccountState::AccountUninit
-    }
-}
-
-impl AccountState {
-    pub fn freeze_account(&self) -> AccountState {
-        match self {
-            AccountState::AccountActive(state_init) => {
-                AccountState::AccountFrozen(state_init.hash().unwrap())
-            }
-            AccountState::AccountUninit => AccountState::AccountUninit,
-            AccountState::AccountFrozen(x) => AccountState::AccountFrozen(*x),
-        }
     }
 }
 
@@ -489,13 +488,25 @@ impl Serializable for AccountState {
             AccountState::AccountUninit => {
                 cell.append_bits(0b00, 2)?; // prefix AccountUninit
             }
-            AccountState::AccountFrozen(hash) => {
-                cell.append_bits(0b01, 2)?; // prefix AccountFrozen
-                cell.append_raw(hash.as_slice(), 256)?; // hash
+            AccountState::AccountFrozen { init_code_hash, state_init_hash } => {
+                if let Some(init_code_hash) = init_code_hash {
+                    cell.append_bits(0b0001, 4)?; // prefix AccountFrozen
+                    cell.append_raw(init_code_hash.as_slice(), 256)?; // init code hash
+                    cell.append_raw(state_init_hash.as_slice(), 256)?; // hash
+                } else { // old format
+                    cell.append_bits(0b01, 2)?; // prefix AccountFrozen
+                    cell.append_raw(state_init_hash.as_slice(), 256)?; // hash
+                }
             }
-            AccountState::AccountActive(state) => {
-                cell.append_bits(0b1, 1)?; // prefix AccountActive
-                state.write_to(cell)?; // StateInit
+            AccountState::AccountActive { init_code_hash, state_init } => {
+                if let Some(init_code_hash) = init_code_hash {
+                    cell.append_bits(0b0000, 4)?; // prefix AccountActive
+                    cell.append_raw(init_code_hash.as_slice(), 256)?; // init code hash
+                    state_init.write_to(cell)?; // StateInit
+                } else { // old format
+                    cell.append_bits(0b1, 1)?; // prefix AccountActive
+                    state_init.write_to(cell)?; // StateInit
+                }
             }
         }
         Ok(())
@@ -504,19 +515,30 @@ impl Serializable for AccountState {
 
 impl Deserializable for AccountState {
     fn construct_from(slice: &mut SliceData) -> Result<Self> {
-        Ok(if slice.get_next_bit()? {
+        if slice.get_next_bit()? {
             // if state Active
-            let mut state = StateInit::default();
-            state.read_from(slice)?; // StateInit
-            AccountState::with_state(state)
+            let init_code_hash = None;
+            let state_init = StateInit::construct_from(slice)?;
+            Ok(AccountState::AccountActive { init_code_hash, state_init })
         } else if slice.get_next_bit()? {
             // if state frozen
-            let hash = slice.get_next_hash()?;
-            AccountState::with_hash(hash)
-        } else {
+            let init_code_hash = None;
+            let state_init_hash = slice.get_next_hash()?;
+            Ok(AccountState::AccountFrozen { init_code_hash, state_init_hash })
+        } else if slice.is_empty() { // old format
             // uninit
-            AccountState::AccountUninit // else state Uninit
-        })
+            Ok(AccountState::AccountUninit) // else state Uninit
+        } else if slice.get_next_bit()? {
+            fail!("wrong format of account")
+        } else if !slice.get_next_bit()? { // $00
+            let init_code_hash = Some(slice.get_next_hash()?);
+            let state_init = StateInit::construct_from(slice)?;
+            Ok(AccountState::AccountActive { init_code_hash, state_init })
+        } else { // $01
+            let init_code_hash = Some(slice.get_next_hash()?);
+            let state_init_hash = slice.get_next_hash()?;
+            Ok(AccountState::AccountFrozen { init_code_hash, state_init_hash })
+        }
     }
 }
 
@@ -550,9 +572,10 @@ impl AccountStuff {
     pub fn storage(&self) -> &AccountStorage {
         &self.storage
     }
-    pub fn set_data(&mut self, data: Cell) {
-        if let AccountState::AccountActive(ref mut state_init) = self.storage.state {
-            state_init.data = Some(data)
+    pub fn state_init_mut(&mut self) -> Option<&mut StateInit> {
+        match self.storage.state {
+            AccountState::AccountActive { init_code_hash: _, ref mut state_init } => Some(state_init),
+            _ => None
         }
     }
     fn update_storage_stat(&mut self) -> Result<()> {
@@ -620,6 +643,32 @@ impl Account {
         Account::AccountNone
     }
 
+    #[deprecated]
+    pub fn active(
+        addr: MsgAddressInt,
+        balance: CurrencyCollection,
+        last_paid: u32,
+        state_init: StateInit,
+    ) -> Result<Self> {
+        Self::active_by_init_code_hash(addr, balance, last_paid, state_init, false)
+    }
+
+    pub fn active_by_init_code_hash(
+        addr: MsgAddressInt,
+        balance: CurrencyCollection,
+        last_paid: u32,
+        state_init: StateInit,
+        init_code_hash: bool,
+    ) -> Result<Self> {
+        let mut account = Self::Account(AccountStuff {
+            addr,
+            storage_stat: StorageInfo::with_values(last_paid, None),
+            storage: AccountStorage::active_by_init_code_hash(0, balance, state_init, init_code_hash),
+        });
+        account.update_storage_stat()?;
+        Ok(account)
+    }
+
     ///
     /// create unintialized account, only with address and balance
     ///
@@ -646,32 +695,46 @@ impl Account {
     /// Create initialized account from "constructor internal message"
     ///
     pub fn from_message(msg: &Message) -> Option<Self> {
+        Self::from_message_by_init_code_hash(msg, false)
+    }
+
+    ///
+    /// Create initialized account from "constructor internal message"
+    ///
+    pub fn from_message_by_init_code_hash(msg: &Message, init_code_hash: bool) -> Option<Self> {
         let hdr = msg.int_header()?;
-        if !hdr.value().grams.is_zero() {
-            let mut storage = AccountStorage::default();
-            storage.balance = hdr.value().clone();
-            if let Some(init) = msg.state_init() {
-                init.code.as_ref()?;
-                storage.state = AccountState::AccountActive(init.clone());
-            } else if hdr.bounce {
-                return None
-            }
-            let mut account = Account::Account(AccountStuff {
-                addr: hdr.dst.clone(),
-                storage_stat: StorageInfo::default(),
-                storage
-            });
-            account.update_storage_stat().ok()?;
-            return Some(account)
+        if hdr.value().grams.is_zero() {
+            return None
         }
-        None
+        let mut storage = AccountStorage::default();
+        storage.balance = hdr.value().clone();
+        if let Some(init) = msg.state_init() {
+            init.code()?;
+            let init_code_hash = match init_code_hash {
+                true => Some(init.code()?.repr_hash()),
+                false => None
+            };
+            let state_init = init.clone();
+            storage.state = AccountState::AccountActive { init_code_hash, state_init };
+        } else if hdr.bounce {
+            return None
+        }
+        let mut account = Account::Account(AccountStuff {
+            addr: hdr.dst.clone(),
+            storage_stat: StorageInfo::default(),
+            storage
+        });
+        account.update_storage_stat().ok()?;
+        Some(account)
     }
 
     // freeze active account
     pub fn try_freeze(&mut self) -> Result<()> {
-        if let Some(stuff) = self.stuff_mut() {
-            if let AccountState::AccountActive(ref state_init) = stuff.storage.state {
-                stuff.storage.state = AccountState::AccountFrozen(state_init.hash()?)
+        if let Some(state) = self.state_mut() {
+            if let AccountState::AccountActive { init_code_hash, state_init} = state {
+                let init_code_hash = *init_code_hash;
+                let state_init_hash = state_init.hash()?;
+                *state = AccountState::AccountFrozen { init_code_hash, state_init_hash }
             }
         }
         Ok(())
@@ -680,7 +743,7 @@ impl Account {
     // uninit active account
     pub fn uninit_account(&mut self) {
         if let Some(stuff) = self.stuff_mut() {
-            if let AccountState::AccountActive(_) = stuff.storage.state {
+            if let AccountState::AccountActive { init_code_hash: _, state_init: _ } = &stuff.storage.state {
                 stuff.storage.state = AccountState::AccountUninit
             }
         }
@@ -752,7 +815,15 @@ impl Account {
 
     pub fn frozen_hash(&self) -> Option<&UInt256> {
         match self.state() {
-            Some(AccountState::AccountFrozen(state_init_hash)) => Some(state_init_hash),
+            Some(AccountState::AccountFrozen { init_code_hash: _, state_init_hash }) => Some(state_init_hash),
+            _ => None
+        }
+    }
+
+    pub fn init_code_hash(&self) -> Option<&UInt256> {
+        match self.state() {
+            Some(AccountState::AccountActive { init_code_hash, state_init: _ }) => init_code_hash.as_ref(),
+            Some(AccountState::AccountFrozen { init_code_hash, state_init_hash: _ }) => init_code_hash.as_ref(),
             _ => None
         }
     }
@@ -809,12 +880,21 @@ impl Account {
         self.stuff().map(|s| &s.storage.state)
     }
 
+    fn state_mut(&mut self) -> Option<&mut AccountState> {
+        self.stuff_mut().map(|s| &mut s.storage.state)
+    }
+
     pub fn state_init(&self) -> Option<&StateInit> {
         match self.state() {
-            Some(AccountState::AccountActive(state_init)) => Some(state_init),
+            Some(AccountState::AccountActive { init_code_hash: _, state_init }) => Some(state_init),
             _ => None
         }
     }
+
+    pub fn state_init_mut(&mut self) -> Option<&mut StateInit> {
+        self.stuff_mut().and_then(|stuff| stuff.state_init_mut())
+    }
+
     pub fn get_tick_tock(&self) -> Option<&TickTock> {
         self.state_init().and_then(|s| s.special.as_ref())
     }
@@ -837,49 +917,41 @@ impl Account {
 
     /// save persistent data of smart contract (for example, after execute code of smart contract into transaction)
     pub fn set_data(&mut self, new_data: Cell) -> bool {
-        if let Some(stuff) = self.stuff_mut() {
-            if let AccountState::AccountActive(ref mut state_init) = stuff.storage.state {
-                state_init.data = Some(new_data);
-                return true
-            }
+        if let Some(state_init) = self.state_init_mut() {
+            state_init.set_data(new_data);
+            return true
         }
         false
     }
 
     /// set new code of smart contract
     pub fn set_code(&mut self, new_code: Cell) -> bool {
-        if let Some(stuff) = self.stuff_mut() {
-            if let AccountState::AccountActive(ref mut state_init) = stuff.storage.state {
-                state_init.code = Some(new_code);
-                return true
-            }
+        if let Some(state_init) = self.state_init_mut() {
+            state_init.set_code(new_code);
+            return true
         }
         false
     }
 
     /// set new library code
     pub fn set_library(&mut self, code: Cell, public: bool) -> bool {
-        if let Some(stuff) = self.stuff_mut() {
-            if let AccountState::AccountActive(ref mut state_init) = stuff.storage.state {
-                return state_init.library.set(&code.repr_hash(), &SimpleLib::new(code, public)).is_ok()
-            }
+        if let Some(state_init) = self.state_init_mut() {
+            return state_init.library.set(&code.repr_hash(), &SimpleLib::new(code, public)).is_ok()
         }
         false
     }
 
     /// change library code public flag
     pub fn set_library_flag(&mut self, hash: &UInt256, public: bool) -> bool {
-        if let Some(stuff) = self.stuff_mut() {
-            if let AccountState::AccountActive(ref mut state_init) = stuff.storage.state {
-                match state_init.library.get(hash) {
-                    Ok(Some(ref mut lib)) => if lib.is_public_library() == public {
-                        return true
-                    } else {
-                        lib.public = public;
-                        return state_init.library.set(hash, lib).is_ok()
-                    }
-                    _ => return false
+        if let Some(state_init) = self.state_init_mut() {
+            match state_init.library.get(hash) {
+                Ok(Some(ref mut lib)) => if lib.is_public_library() == public {
+                    return true
+                } else {
+                    lib.public = public;
+                    return state_init.library.set(hash, lib).is_ok()
                 }
+                _ => return false
             }
         }
         false
@@ -887,29 +959,44 @@ impl Account {
 
     /// delete library code
     pub fn delete_library(&mut self, hash: &UInt256) -> bool {
-        if let Some(stuff) = self.stuff_mut() {
-            if let AccountState::AccountActive(ref mut state_init) = stuff.storage.state {
-                return state_init.library.remove(hash).is_ok()
-            }
+        if let Some(state_init) = self.state_init_mut() {
+            return state_init.library.remove(hash).is_ok()
         }
         false
     }
 
     /// Try to activate account with new StateInit
-    pub fn try_activate(&mut self, state: &StateInit) -> Result<()> {
+    #[deprecated]
+    pub fn try_activate(&mut self, state_init: &StateInit) -> Result<()> {
+        self.try_activate_by_init_code_hash(state_init, false)
+    }
+
+    /// Try to activate account with new StateInit
+    pub fn try_activate_by_init_code_hash(&mut self, state_init: &StateInit, init_code_hash: bool) -> Result<()> {
         if let Some(stuff) = self.stuff_mut() {
             let new_state = match &stuff.storage.state {
-                AccountState::AccountUninit => if state.hash()? == stuff.addr.get_address() {
-                    AccountState::AccountActive(state.clone())
-                } else {
-                    fail!("StateInit doesn't correspond to uninit account address")
+                AccountState::AccountUninit => {
+                    if state_init.hash()? == stuff.addr.get_address() {
+                        let init_code_hash = match init_code_hash {
+                            true => state_init.code().map(|code| code.repr_hash()),
+                            false => None
+                        };
+                        let state_init = state_init.clone();
+                        AccountState::AccountActive {init_code_hash, state_init}
+                    } else {
+                        fail!("StateInit doesn't correspond to uninit account address")
+                    }
                 }
-                AccountState::AccountFrozen(hash) => if hash == state.hash()? {
-                    AccountState::AccountActive(state.clone())
-                } else {
-                    fail!("StateInit doesn't correspond to frozen hash")
+                AccountState::AccountFrozen { init_code_hash, state_init_hash } => {
+                    if state_init_hash == state_init.hash()? {
+                        let init_code_hash =  *init_code_hash;
+                        let state_init = state_init.clone();
+                        AccountState::AccountActive { init_code_hash, state_init }
+                    } else {
+                        fail!("StateInit doesn't correspond to frozen hash")
+                    }
                 }
-                AccountState::AccountActive(_) => stuff.storage.state.clone(),
+                _ => stuff.storage.state.clone()
             };
             stuff.storage.state = new_state;
             Ok(())
@@ -919,30 +1006,37 @@ impl Account {
     }
 
     // obsolete - use try_activate
-    pub fn activate(&mut self, state: StateInit) { self.try_activate(&state).unwrap() }
+    #[deprecated]
+    pub fn activate(&mut self, state: StateInit) { self.try_activate_by_init_code_hash(&state, false).unwrap() }
 
     /// getting to the root of the cell with library
     pub fn libraries(&self) -> StateInitLib {
-        if let Some(stuff) = self.stuff() {
-            if let AccountState::AccountActive(ref state_init) = stuff.storage.state {
-                return state_init.libraries()
-            }
+        match self.state_init() {
+            Some(state_init) => state_init.libraries(),
+            None => StateInitLib::default()
         }
-        StateInitLib::default()
     }
 
     /// Get enum variant indicating current state of account
     pub fn status(&self) -> AccountStatus {
         if let Some(stuff) = self.stuff() {
-            match stuff.storage.state {
+            match stuff.storage.state() {
                 AccountState::AccountUninit => AccountStatus::AccStateUninit,
-                AccountState::AccountFrozen(_) => AccountStatus::AccStateFrozen,
-                AccountState::AccountActive(_) => AccountStatus::AccStateActive,
+                AccountState::AccountFrozen { init_code_hash: _, state_init_hash: _ } => AccountStatus::AccStateFrozen,
+                AccountState::AccountActive { init_code_hash: _, state_init: _ } => AccountStatus::AccStateActive,
             }
         } else {
             AccountStatus::AccStateNonexist
         }
     }
+
+    pub fn last_paid(&self) -> u32 {
+        match self.stuff() {
+            Some(stuff) => stuff.storage_stat.last_paid,
+            None => 0
+        }
+    }
+
     /// calculate storage fee and sub funds, freeze if not enought
     pub fn set_last_paid(&mut self, last_paid: u32) {
         if let Some(stuff) = self.stuff_mut() {
@@ -1017,7 +1111,7 @@ impl Account {
                 ss
                     .read_accounts()?
                     .get_serialized(addr)?
-                    .ok_or_else(|| 
+                    .ok_or_else(||
                         error!(
                             BlockError::InvalidArg(
                                 "Account doesn't belong to given shard state".to_string()
@@ -1171,22 +1265,28 @@ impl Deserializable for ShardAccount {
 }
 
 #[allow(dead_code)]
+#[deprecated]
 pub fn generate_test_account() -> Account {
+    generate_test_account_by_init_code_hash(false)
+}
+
+#[allow(dead_code)]
+pub fn generate_test_account_by_init_code_hash(init_code_hash: bool) -> Account {
     let mut anc = AnycastInfo::default();
     anc.set_rewrite_pfx(SliceData::new(vec![0x98,0x32,0x17,0x80])).unwrap();
 
-    let acc_id = AccountId::from_raw(vec![0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0A,0x0B,0x0C,0x0D,0x0E,0x0F,
-                                      0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,0x19,0x1A,0x1B,0x1C,0x1D,0x1E,0x1F], 256);
+    let acc_id = AccountId::from([0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0A,0x0B,0x0C,0x0D,0x0E,0x0F,
+        0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,0x19,0x1A,0x1B,0x1C,0x1D,0x1E,0x1F]);
 
     //let st_used = StorageUsed::with_values(1,2,3,4,5);
     let g = Some(Grams(111u32.into()));
     let st_info = StorageInfo::with_values(123456789, g);
-    
+
     let mut stinit = StateInit::default();
-    
+
     stinit.set_split_depth(Number5(23));
     stinit.set_special(TickTock::with_values(false, true));
-    
+
     let mut code = SliceData::new(vec![0b00111111, 0b11111111,0b11111111,0b11111111,0b11111111,0b11111111,0b11111111,0b11110100]);
     let mut subcode1 = SliceData::new(vec![0b00111111, 0b11111111,0b11111111,0b11111111,0b11111111,0b11111111,0b11111111,0b11110100]);
     let mut subcode2 = SliceData::new(vec![0b00111111, 0b111111,0b11111111,0b11111111,0b11111111,0b11111111,0b11111111,0b11110100]);
@@ -1197,7 +1297,7 @@ pub fn generate_test_account() -> Account {
     subcode1.append_reference(subcode2);
     code.append_reference(subcode1);
     stinit.set_code(code.into_cell());
-    
+
     let data = SliceData::new(vec![0b00111111, 0b11111111,0b11111,0b11111111,0b11111111,0b11111111,0b11111111,0b11110100]);
     stinit.set_data(data.into_cell());
     let library = SliceData::new(vec![0b00111111, 0b11111111,0b11111111,0b11111111,0b11111111,0b11111111,0b11111111,0b11110100]);
@@ -1213,7 +1313,7 @@ pub fn generate_test_account() -> Account {
     balance.set_other(6, 600).unwrap();
     balance.set_other(7, 10000100).unwrap();
 
-    let acc_st = AccountStorage::active(0, balance, stinit);
+    let acc_st = AccountStorage::active_by_init_code_hash(0, balance, stinit, init_code_hash);
     let addr = MsgAddressInt::with_standart(Some(anc), 0, acc_id).unwrap();
     let mut account = Account::with_storage(&addr, &st_info, &acc_st);
     account.update_storage_stat().unwrap();

@@ -309,6 +309,7 @@ pub enum GlobalCapabilities {
     CapShortDequeue = 32,
     CapMbppEnabled = 64,
     CapFastStorageStat = 128,
+    CapInitCodeHash = 256,
     CapOffHypercube = 512,
 }
 
@@ -498,6 +499,10 @@ macro_rules! read_config {
 }
 
 impl ConfigParamEnum {
+
+    pub fn construct_from_cell_and_number(cell: Cell, index: u32) -> Result<ConfigParamEnum> {
+        Self::construct_from_slice_and_number(&mut cell.into(), index)
+    }
 
     /// read config from cell
     pub fn construct_from_slice_and_number(slice: &mut SliceData, index: u32) -> Result<ConfigParamEnum> {

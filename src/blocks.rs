@@ -59,12 +59,13 @@ pub struct BlockIdExt {
 
 impl BlockIdExt {
     /// New instance of BlockIdExt structure
-    pub fn new(shard_id: ShardIdent, seq_no: u32) -> Self {
-        Self::with_params(shard_id, seq_no, Default::default(), Default::default())
+    #[deprecated]
+    pub const fn new(shard_id: ShardIdent, seq_no: u32) -> Self {
+        Self::with_params(shard_id, seq_no, UInt256::default(), UInt256::default())
     }
 
     // New instance of BlockIdExt structure
-    pub fn with_params(
+    pub const fn with_params(
         shard_id: ShardIdent,
         seq_no: u32,
         root_hash: UInt256,
@@ -77,20 +78,12 @@ impl BlockIdExt {
             file_hash,
         }
     }
-    pub fn from_ext_blk(blk: ExtBlkRef) -> Self {
+    pub const fn from_ext_blk(blk: ExtBlkRef) -> Self {
         BlockIdExt {
             shard_id: ShardIdent::masterchain(),
             seq_no: blk.seq_no,
             root_hash: blk.root_hash,
             file_hash: blk.file_hash,
-        }
-    }
-    pub fn dummy_masterchain() -> Self {
-        BlockIdExt {
-            shard_id: ShardIdent::masterchain(),
-            seq_no: 0,
-            root_hash: UInt256::default(),
-            file_hash: UInt256::default(),
         }
     }
 
@@ -129,9 +122,9 @@ impl Deserializable for BlockIdExt {
 
 impl Display for BlockIdExt {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "({}:{}, {}, rh {}, fh {})", 
-            self.shard_id.workchain_id(), 
-            self.shard_id.shard_prefix_as_str_with_tag(), 
+        write!(f, "({}:{}, {}, rh {}, fh {})",
+            self.shard_id.workchain_id(),
+            self.shard_id.shard_prefix_as_str_with_tag(),
             self.seq_no,
             self.root_hash.to_hex_string(),
             self.file_hash.to_hex_string())
@@ -194,28 +187,28 @@ pub struct BlockSeqNoAndShard {
 
 const GEN_SOFTWARE_EXISTS_FLAG: u8 = 1;
 
-/* 
-block_info#9bc7a987 
+/*
+block_info#9bc7a987
 
-  version:uint32 
-  not_master:(## 1) 
+  version:uint32
+  not_master:(## 1)
   after_merge:(## 1)
-  before_split:(## 1) 
-  after_split:(## 1) 
+  before_split:(## 1)
+  after_split:(## 1)
   want_split:Bool
   want_merge:Bool
-  key_block:Bool 
+  key_block:Bool
 
   vert_seqno_incr:(## 1)
   flags:(## 8) { flags <= 1 }
-  seq_no:# 
-  vert_seq_no:# 
-  { vert_seq_no >= vert_seqno_incr } 
-  { prev_seq_no:# } { ~prev_seq_no + 1 = seq_no } 
+  seq_no:#
+  vert_seq_no:#
+  { vert_seq_no >= vert_seqno_incr }
+  { prev_seq_no:# } { ~prev_seq_no + 1 = seq_no }
 
   shard:ShardIdent
   gen_utime:uint32
-  start_lt:uint64 
+  start_lt:uint64
   end_lt:uint64
   gen_validator_list_hash_short:uint32
   gen_catchain_seqno:uint32
@@ -223,7 +216,7 @@ block_info#9bc7a987
   prev_key_block_seqno:uint32
   gen_software:flags . 0?GlobalVersion
 
-  master_ref:not_master?^BlkMasterInfo 
+  master_ref:not_master?^BlkMasterInfo
   prev_ref:^(BlkPrevInfo after_merge)
   prev_vert_ref:vert_seqno_incr?^(BlkPrevInfo 0)
 
@@ -385,8 +378,8 @@ impl BlockInfo {
     }
     pub fn read_prev_ref(&self) -> Result<BlkPrevInfo> {
         let mut prev_ref = if self.after_merge {
-            BlkPrevInfo::default_blocks() 
-        } else { 
+            BlkPrevInfo::default_blocks()
+        } else {
             BlkPrevInfo::default_block()
         };
         prev_ref.read_from(&mut self.prev_ref.cell().into())?;
@@ -445,8 +438,8 @@ prev_blk_info$_
     = BlkPrevInfo 0;
 
 prev_blks_info$_
-    prev1:^ExtBlkRef 
-    prev2:^ExtBlkRef 
+    prev1:^ExtBlkRef
+    prev2:^ExtBlkRef
     = BlkPrevInfo 1;
 */
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1078,7 +1071,7 @@ impl Deserializable for BlockInfo {
             )
         }
         self.version = cell.get_next_u32()?;
-        
+
         let next_byte = cell.get_next_byte()?;
         let not_master = (next_byte >> 7) & 1 == 1;
         let after_merge = (next_byte >> 6) & 1 == 1;
@@ -1110,13 +1103,13 @@ impl Deserializable for BlockInfo {
             let mut bli = BlkMasterInfo::default();
             bli.read_from_reference(cell)?;
             Some(ChildCell::with_struct(&bli)?)
-        } else { 
+        } else {
             None
         };
 
         let mut prev_ref = if after_merge {
-            BlkPrevInfo::default_blocks() 
-        } else { 
+            BlkPrevInfo::default_blocks()
+        } else {
             BlkPrevInfo::default_block()
         };
         prev_ref.read_from_reference(cell)?;
