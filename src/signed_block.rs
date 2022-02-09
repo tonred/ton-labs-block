@@ -16,7 +16,7 @@ use crate::{
 	error::BlockError,
 	Deserializable, Serializable,
 };
-use ed25519::signature::{Signature, Signer, Verifier};
+use ed25519::signature::{Signer, Verifier};
 use sha2::Digest;
 use std::cmp::Ordering;
 use std::collections::HashMap;

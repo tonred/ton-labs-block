@@ -28,7 +28,7 @@ use std::{
 };
 use sha2::{Sha256, Sha512, Digest};
 use ton_types::types::ByteOrderRead;
-use crc::{crc32, Hasher32};
+use crc::{Crc, CRC_32_ISCSI};
 use ton_types::{
     fail, Result,
     UInt256, BuilderData, Cell, HashmapE, HashmapType, IBitstring, SliceData,
@@ -502,22 +502,24 @@ impl ValidatorSet {
     const HASH_SHORT_MAGIC: i32 = -1877581587;
 
     pub fn calc_subset_hash_short(subset: &[ValidatorDescr], cc_seqno: u32) -> Result<u32> {
-        let mut hasher = crc32::Digest::new(crc32::CASTAGNOLI);
-        hasher.write(&Self::HASH_SHORT_MAGIC.to_le_bytes());
-        hasher.write(&cc_seqno.to_le_bytes());
-        hasher.write(&(subset.len() as u32).to_le_bytes());
+        let mut hasher = CRC.digest();
+        hasher.update(&Self::HASH_SHORT_MAGIC.to_le_bytes());
+        hasher.update(&cc_seqno.to_le_bytes());
+        hasher.update(&(subset.len() as u32).to_le_bytes());
         for vd in subset.iter() {
-            hasher.write(vd.public_key.as_slice());
-            hasher.write(&vd.weight.to_le_bytes());
+            hasher.update(vd.public_key.as_slice());
+            hasher.update(&vd.weight.to_le_bytes());
             if let Some(addr) = vd.adnl_addr.as_ref() {
-                hasher.write(addr.as_slice());
+                hasher.update(addr.as_slice());
             } else {
-                hasher.write(UInt256::default().as_slice());
+                hasher.update(UInt256::default().as_slice());
             }
         }
-        Ok(hasher.sum32())
+        Ok(hasher.finalize())
     }
 }
+
+static CRC: Crc<u32> = Crc::<u32>::new(&CRC_32_ISCSI);
 
 const VALIDATOR_SET_TAG: u8 = 0x11;
 const VALIDATOR_SET_EX_TAG: u8 = 0x12;

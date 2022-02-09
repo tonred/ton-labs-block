@@ -18,7 +18,7 @@ use crate::{
     Serializable, Deserializable,
     validators::ValidatorDescr
 };
-use ed25519::signature::{Signature, Verifier};
+use ed25519::signature::{Verifier};
 use std::{
     io::{Cursor, Write},
     collections::HashMap,
