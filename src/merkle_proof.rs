@@ -22,12 +22,12 @@ use crate::{
     transactions::Transaction,
     messages::Message,
 };
-use std::{cmp::max, collections::HashSet};
+use std::cmp::max;
 use ton_types::{
     Cell, CellType, BuilderData, fail, IBitstring, LevelMask, SliceData, Result,
     UsageTree, types::UInt256
 };
-
+use rustc_hash::FxHashSet;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MerkleProof {
@@ -118,7 +118,7 @@ impl MerkleProof {
         cell: &Cell,
         is_include: &impl Fn(&UInt256) -> bool,
         merkle_depth: u8,
-        pruned_branches: &mut Option<HashSet<UInt256>>,
+        pruned_branches: &mut Option<FxHashSet<UInt256>>,
     ) -> Result<BuilderData> {
 
         let child_merkle_depth = if cell.is_merkle() {

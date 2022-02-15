@@ -21,7 +21,6 @@ use crate::{
 use ed25519::signature::{Verifier};
 use std::{
     io::{Cursor, Write},
-    collections::HashMap,
     str::FromStr
 };
 use ton_types::{
@@ -29,7 +28,7 @@ use ton_types::{
     UInt256,
     BuilderData, Cell, IBitstring, SliceData, HashmapE, HashmapType
 };
-
+use rustc_hash::FxHashMap;
 /*
 ed25519_signature#5 R:bits256 s:bits256 = CryptoSignature;
 */
@@ -351,7 +350,7 @@ impl BlockSignaturesPure {
 
     pub fn check_signatures(&self, validators_list: Vec<ValidatorDescr>, data: &[u8]) -> Result<u64> {
         // Calc validators short ids
-        let mut validators_map = HashMap::with_capacity(validators_list.len());
+        let mut validators_map = FxHashMap::with_capacity_and_hasher(validators_list.len(), Default::default());
         for vd in validators_list {
             validators_map.insert(vd.compute_node_id_short(), vd);
         };

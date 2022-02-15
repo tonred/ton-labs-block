@@ -37,6 +37,7 @@ log = "0.4.8"
 num = "0.3"
 num-traits = "^0.2.8"
 rand = "0.8"
+rustc-hash = "1.1.0"
 sha2 = "0.9.9"
 thiserror = "1.0.26"
 smallvec = { version = "1.8.0", features = ["const_generics", "union", "write"] }

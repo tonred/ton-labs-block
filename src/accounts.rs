@@ -21,7 +21,8 @@ use crate::{
     shard_accounts::DepthBalanceInfo,
     GetRepresentationHash, Serializable, Deserializable, MaybeSerialize, MaybeDeserialize,
 };
-use std::{collections::HashSet, fmt};
+use std::fmt;
+use rustc_hash::FxHashSet;
 use ton_types::{
     error, fail, Result,
     UInt256, AccountId, BuilderData, Cell, IBitstring, SliceData, UsageTree,
@@ -103,11 +104,11 @@ impl StorageUsed {
     pub fn calculate_for_struct<T: Serializable>(value: &T) -> Result<StorageUsed> {
         let root_cell = value.serialize()?;
         let mut used = Self::default();
-        used.calculate_for_cell(&mut HashSet::new(), &root_cell);
+        used.calculate_for_cell(&mut FxHashSet::default(), &root_cell);
         Ok(used)
     }
 
-    fn calculate_for_cell(&mut self, hashes: &mut HashSet<UInt256>, cell: &Cell) {
+    fn calculate_for_cell(&mut self, hashes: &mut FxHashSet<UInt256>, cell: &Cell) {
         if hashes.insert(cell.repr_hash()) {
             self.cells.0 += 1;
             self.bits.0 += cell.bit_length() as u64;
@@ -182,11 +183,11 @@ impl StorageUsedShort {
     pub fn calculate_for_struct<T: Serializable>(value: &T) -> Result<StorageUsedShort> {
         let root_cell = value.serialize()?;
         let mut used = Self::default();
-        used.calculate_for_cell(&mut HashSet::new(), &root_cell);
+        used.calculate_for_cell(&mut FxHashSet::default(), &root_cell);
         Ok(used)
     }
 
-    fn calculate_for_cell(&mut self, hashes: &mut HashSet<UInt256>, cell: &Cell) {
+    fn calculate_for_cell(&mut self, hashes: &mut FxHashSet<UInt256>, cell: &Cell) {
         if hashes.insert(cell.repr_hash()) {
             self.cells.0 += 1;
             self.bits.0 += cell.bit_length() as u64;
@@ -198,7 +199,7 @@ impl StorageUsedShort {
 
     /// append cell and bits count into
     pub fn append(&mut self, root_cell: &Cell) {
-        Self::calculate_for_cell(self, &mut HashSet::new(), root_cell);
+        Self::calculate_for_cell(self, &mut FxHashSet::default(), root_cell);
     }
 }
 

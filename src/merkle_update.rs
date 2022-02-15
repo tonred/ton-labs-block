@@ -15,14 +15,13 @@ use crate::{
     error::BlockError,
     Serializable, Deserializable, MerkleProof,
 };
-use std::collections::{HashMap, HashSet};
 use ton_types::{
     fail, Result,
     BagOfCells,
     UInt256,
     BuilderData, Cell, CellType, IBitstring, LevelMask, SliceData,
 };
-
+use rustc_hash::{FxHashMap, FxHashSet};
 
 /*
 !merkle_update {X:Type} old_hash:uint256 new_hash:uint256
@@ -136,7 +135,7 @@ impl MerkleUpdate {
             // trees traversal and update creating;
             let new_bag = BagOfCells::with_root(new);
             let new_cells = new_bag.cells();
-            let mut pruned_branches = HashMap::new();
+            let mut pruned_branches = FxHashMap::default();
 
             let old_update_cell = match Self::traverse_old_on_create(old, new_cells, &mut pruned_branches)? {
                 Some(old_update_cell) => old_update_cell,
@@ -170,14 +169,14 @@ impl MerkleUpdate {
                 new: pruned_branch_cell,
             })
         } else {
-            let mut pruned_branches = Some(HashSet::new());
+            let mut pruned_branches = Some(FxHashSet::default());
             let new_update_cell = MerkleProof::create_raw(
                 new, &|hash| !is_visited_old(hash), 0, &mut pruned_branches)?;
             let pruned_branches = pruned_branches.unwrap();
 
-            let mut used_paths_cells = HashSet::new();
+            let mut used_paths_cells = FxHashSet::default();
             if Self::collect_used_paths_cells(old, &is_visited_old, &pruned_branches,
-                &mut HashSet::new(), &mut used_paths_cells) {
+                &mut FxHashSet::default(), &mut used_paths_cells) {
                 used_paths_cells.insert(old.repr_hash());
             }
 
@@ -198,9 +197,9 @@ impl MerkleUpdate {
     fn collect_used_paths_cells(
         cell: &Cell,
         is_visited_old: &impl Fn(&UInt256) -> bool,
-        pruned_branches: &HashSet<UInt256>,
-        visited_pruned_branches: &mut HashSet<UInt256>,
-        used_paths_cells: &mut HashSet<UInt256>
+        pruned_branches: &FxHashSet<UInt256>,
+        visited_pruned_branches: &mut FxHashSet<UInt256>,
+        used_paths_cells: &mut FxHashSet<UInt256>
     ) -> bool {
         let repr_hash = cell.repr_hash();
 
@@ -245,7 +244,7 @@ impl MerkleUpdate {
         if self.new_hash == self.old_hash {
             Ok(old_root.clone())
         } else {
-            let new_root = self.traverse_on_apply(&self.new, &old_cells, &mut HashMap::new(), 0)?;
+            let new_root = self.traverse_on_apply(&self.new, &old_cells, &mut FxHashMap::default(), 0)?;
 
             // constructed tree's hash have to coinside with self.new_hash
             if new_root.repr_hash() != self.new_hash {
@@ -258,7 +257,7 @@ impl MerkleUpdate {
 
     /// Check the update corresponds given bag.
     /// The function is called from `apply_for`
-    pub fn check(&self, old_root: &Cell) -> Result<HashMap<UInt256, Cell>> {
+    pub fn check(&self, old_root: &Cell) -> Result<FxHashMap<UInt256, Cell>> {
 
         // check that hash of `old_tree` is equal old hash from `self`
         if self.old_hash != old_root.repr_hash() {
@@ -267,12 +266,12 @@ impl MerkleUpdate {
 
         // traversal along `self.new` and check all pruned branches,
         // all new tree's pruned branches have to be contained in old one
-        let mut known_cells = HashSet::new();
-        Self::traverse_old_on_check(&self.old, &mut known_cells, &mut HashSet::new(), 0);
-        Self::traverse_new_on_check(&self.new, &known_cells, &mut HashSet::new(), 0)?;
+        let mut known_cells = FxHashSet::default();
+        Self::traverse_old_on_check(&self.old, &mut known_cells, &mut FxHashSet::default(), 0);
+        Self::traverse_new_on_check(&self.new, &known_cells, &mut FxHashSet::default(), 0)?;
 
-        let mut known_cells_vals = HashMap::new();
-        Self::collate_old_cells(old_root, &known_cells, &mut known_cells_vals, &mut HashSet::new(), 0);
+        let mut known_cells_vals = FxHashMap::default();
+        Self::collate_old_cells(old_root, &known_cells, &mut known_cells_vals, &mut FxHashSet::default(), 0);
 
         Ok(known_cells_vals)
     }
@@ -282,8 +281,8 @@ impl MerkleUpdate {
     /// `old_cells` cells from old bag of cells;
     fn traverse_on_apply(&self,
         update_cell: &Cell,
-        old_cells: &HashMap<UInt256, Cell>,
-        new_cells: &mut HashMap<UInt256, Cell>,
+        old_cells: &FxHashMap<UInt256, Cell>,
+        new_cells: &mut FxHashMap<UInt256, Cell>,
         merkle_depth: u8
     ) -> Result<Cell> {
 
@@ -348,7 +347,7 @@ impl MerkleUpdate {
 
     fn traverse_new_on_create(
             new_cell: &Cell,
-            common_pruned: &HashMap<UInt256, Cell>) -> Result<BuilderData> {
+            common_pruned: &FxHashMap<UInt256, Cell>) -> Result<BuilderData> {
 
         let mut new_update_cell = BuilderData::new();
         let mut child_mask = LevelMask::with_mask(0);
@@ -376,8 +375,8 @@ impl MerkleUpdate {
     //   else - skip this cell (return None)
     fn traverse_old_on_create(
         old_cell: &Cell,
-        new_cells: &HashMap<UInt256, Cell>,
-        pruned_branches: &mut HashMap<UInt256, Cell>
+        new_cells: &FxHashMap<UInt256, Cell>,
+        pruned_branches: &mut FxHashMap<UInt256, Cell>
     ) -> Result<Option<BuilderData>> {
 
         let mut childs = vec!(None; old_cell.references_count());
@@ -457,7 +456,7 @@ impl MerkleUpdate {
         Ok(result)
     }
 
-    fn traverse_old_on_check(cell: &Cell, known_cells: &mut HashSet<UInt256>, visited: &mut HashSet<UInt256>, merkle_depth: u8) {
+    fn traverse_old_on_check(cell: &Cell, known_cells: &mut FxHashSet<UInt256>, visited: &mut FxHashSet<UInt256>, merkle_depth: u8) {
         if visited.insert(cell.repr_hash()) {
             known_cells.insert(cell.hash(merkle_depth as usize));
             if cell.cell_type() != CellType::PrunedBranch {
@@ -470,7 +469,7 @@ impl MerkleUpdate {
     }
 
     // Checks all pruned branches from new tree are exist in old tree
-    fn traverse_new_on_check(cell: &Cell, known_cells: &HashSet<UInt256>, visited: &mut HashSet<UInt256>, merkle_depth: u8) -> Result<()> {
+    fn traverse_new_on_check(cell: &Cell, known_cells: &FxHashSet<UInt256>, visited: &mut FxHashSet<UInt256>, merkle_depth: u8) -> Result<()> {
         if visited.insert(cell.repr_hash()) {
             if cell.cell_type() == CellType::PrunedBranch {
                 if cell.level() == merkle_depth + 1 &&
@@ -487,7 +486,7 @@ impl MerkleUpdate {
         Ok(())
     }
 
-    fn collate_old_cells(cell: &Cell, known_cells_hashes: &HashSet<UInt256>, known_cells: &mut HashMap<UInt256, Cell>, visited: &mut HashSet<UInt256>, merkle_depth: u8) {
+    fn collate_old_cells(cell: &Cell, known_cells_hashes: &FxHashSet<UInt256>, known_cells: &mut FxHashMap<UInt256, Cell>, visited: &mut FxHashSet<UInt256>, merkle_depth: u8) {
         if visited.insert(cell.repr_hash()) {
             let hash = cell.hash(merkle_depth as usize);
             if known_cells_hashes.contains(&hash) {
