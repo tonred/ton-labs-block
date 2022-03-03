@@ -338,11 +338,9 @@ pub fn check_message_proof(proof: &MerkleProof, msg: &Message, block_id: &UInt25
                 Ok(())
             }
         } else {
-            fail!(
-                BlockError::WrongMerkleProof(
-                    "Error extracting message from out message".to_string()
-                )
-            )
+            fail!(BlockError::WrongMerkleProof(
+                "Error extracting message from out message".to_string()
+            ))
         }
     } else {
         fail!(BlockError::WrongMerkleProof("No message in proof".to_string()))

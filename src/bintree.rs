@@ -305,8 +305,7 @@ impl<X: Default + Serializable + Deserializable> Deserializable for BinTree<X> {
         if slice.get_next_bit()? {
             slice.shrink_references(2..);
         } else {
-            let mut x = X::default();
-            x.read_from(slice)?;
+            X::skip(slice)?;
         }
         self.data.shrink_by_remainder(slice);
         Ok(())

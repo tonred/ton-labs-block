@@ -1044,19 +1044,11 @@ impl TransactionDescr {
     }
 
     pub fn is_split(&self) -> bool {
-        match self {
-            TransactionDescr::SplitPrepare(_) |
-            TransactionDescr::SplitInstall(_) => true,
-            _ => false,
-        }
+        matches!(self, TransactionDescr::SplitPrepare(_) | TransactionDescr::SplitInstall(_))
     }
 
     pub fn is_merge(&self) -> bool {
-        match self {
-            TransactionDescr::MergePrepare(_) |
-            TransactionDescr::MergeInstall(_) => true,
-            _ => false,
-        }
+        matches!(self, TransactionDescr::MergePrepare(_) | TransactionDescr::MergeInstall(_))
     }
 
     fn append_to_storage_used(&mut self, cell: &Cell) {
@@ -1423,7 +1415,7 @@ impl Transaction {
     }
 
     pub fn write_in_msg(&mut self, value: Option<&Message>) -> Result<()> {
-        self.in_msg = value.map(|v| ChildCell::with_struct(v)).transpose()?;
+        self.in_msg = value.map(ChildCell::with_struct).transpose()?;
         Ok(())
     }
 

@@ -181,6 +181,17 @@ macro_rules! define_HashmapAugE {
             }
         }
 
+        impl ton_types::HashmapRemover for $varname {
+            fn after_remove(&mut self) -> Result<()> {
+                let aug = match self.data() {
+                    Some(root) => Self::find_extra(&mut root.into(), self.bit_len())?,
+                    None => <$y_type>::default()
+                };
+                self.set_root_extra(aug);
+                Ok(())
+            }
+        }
+
         impl $varname {
             /// scans differences in two hashmaps
             pub fn scan_diff_with_aug<F>(&self, other: &Self, mut op: F) -> Result<bool>
@@ -251,7 +262,7 @@ pub trait HashmapAugType<K: Deserializable + Serializable, X: Deserializable + S
     fn update_root_extra(&mut self) -> Result<&Y> {
         let aug = match self.data() {
             Some(root) => Self::find_extra(&mut SliceData::from(root), self.bit_len())?,
-            None => Y::default()
+            None => Y::default(),
         };
         self.set_root_extra(aug);
         Ok(self.root_extra())
@@ -744,12 +755,10 @@ where K: Deserializable + Serializable, X: Deserializable + Serializable, Y: Aug
             let key = K::construct_from_cell(key.clone().into_cell()?)?;
             let (val, aug) = Self::value_aug(&mut aug_val)?;
             func(key, val, aug)
-        })?;
-        let aug = match self.data() {
-            Some(root) => Self::find_extra(&mut root.into(), self.bit_len())?,
-            None => Y::default()
-        };
-        self.set_root_extra(aug);
+        })
+    }
+    fn del(&mut self, key: &Y) -> Result<()> {
+        self.remove(key.serialize()?.into())?;
         Ok(())
     }
 }

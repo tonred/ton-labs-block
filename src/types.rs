@@ -22,7 +22,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use num::{BigInt, BigUint, bigint::Sign, One, Zero};
 use num_traits::cast::ToPrimitive;
 use ton_types::{fail, Result,
-    BuilderData, Cell, CellType, IBitstring, HashmapE, HashmapType, SliceData, ExceptionCode, UInt256
+    BuilderData, Cell, CellType, IBitstring, HashmapE, HashmapType, SliceData, UInt256
 };
 
 use crate::{
@@ -217,7 +217,7 @@ macro_rules! define_VarIntegerN {
                 let bits = 8 - ($N as u8).leading_zeros();
                 let bytes = ((0 as $tt).leading_zeros() / 8 - self.0.leading_zeros() / 8) as usize;
                 if bytes > $N {
-                    fail!(ExceptionCode::IntegerOverflow)
+                    fail!("cannot store {} grams, required {} bytes", self, bytes)
                 }
                 cell.append_bits(bytes, bits as usize)?;
                 let be_bytes = self.0.to_be_bytes();
@@ -948,13 +948,20 @@ impl UnixTime32 {
         Self(0)
     }
     pub fn now() -> Self {
-        UnixTime32 { 0: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as u32 }
+        UnixTime32(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as u32)
     }
 }
 
 impl From<u32> for UnixTime32 {
     fn from(value: u32) -> Self {
         UnixTime32(value)
+    }
+}
+
+#[allow(clippy::from_over_into)]
+impl Into<u32> for UnixTime32 {
+    fn into(self) -> u32 {
+        self.0
     }
 }
 

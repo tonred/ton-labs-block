@@ -42,20 +42,27 @@ pub struct ConfigParams {
 
 impl Default for ConfigParams {
     fn default() -> ConfigParams {
-        ConfigParams {
-            config_addr: UInt256::default(),
-            config_params: HashmapE::with_bit_len(32)
-        }
+        Self::new()
     }
 }
 
 impl ConfigParams {
     /// create new instance ConfigParams
-    pub fn new() -> Self {
-        Self::default()
+    pub const fn new() -> Self {
+        Self {
+            config_addr: UInt256::default(),
+            config_params: HashmapE::with_bit_len(32)
+        }
     }
 
-    pub fn with_address_and_params(config_addr: UInt256, data: Option<Cell>) -> Self {
+    pub const fn with_address_and_root(config_addr: UInt256, data: Cell) -> Self {
+        Self {
+            config_addr,
+            config_params: HashmapE::with_hashmap(32, Some(data))
+        }
+    }
+
+    pub const fn with_address_and_params(config_addr: UInt256, data: Option<Cell>) -> Self {
         Self {
             config_addr,
             config_params: HashmapE::with_hashmap(32, data)
@@ -246,6 +253,12 @@ impl ConfigParams {
         match self.config(28)? {
             Some(ConfigParamEnum::ConfigParam28(ccc)) => Ok(ccc),
             _ => fail!("no CatchainConfig in config_params")
+        }
+    }
+    pub fn consensus_config(&self) -> Result<ConsensusConfig> {
+        match self.config(29)? {
+            Some(ConfigParamEnum::ConfigParam29(ConfigParam29{ consensus_config})) => Ok(consensus_config),
+            _ => fail!("no ConsensusConfig in config_params")
         }
     }
     // TODO 29 consensus config
@@ -486,6 +499,7 @@ pub enum ConfigParamEnum {
     ConfigParam36(ConfigParam36),
     ConfigParam37(ConfigParam37),
     ConfigParam39(ConfigParam39),
+    ConfigParam40(ConfigParam40),
     ConfigParamAny(u32, SliceData),
 }
 
@@ -542,6 +556,7 @@ impl ConfigParamEnum {
             36 => { read_config!(ConfigParam36, ConfigParam36, slice) },
             37 => { read_config!(ConfigParam37, ConfigParam37, slice) },
             39 => { read_config!(ConfigParam39, ConfigParam39, slice) },
+            40 => { read_config!(ConfigParam40, ConfigParam40, slice) },
             index => Ok(ConfigParamEnum::ConfigParamAny(index, slice.clone())),
         }
     }
@@ -583,6 +598,7 @@ impl ConfigParamEnum {
             ConfigParamEnum::ConfigParam36(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(36)},
             ConfigParamEnum::ConfigParam37(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(37)},
             ConfigParamEnum::ConfigParam39(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(39)},
+            ConfigParamEnum::ConfigParam40(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(40)},
             ConfigParamEnum::ConfigParamAny(index, slice) => { cell.append_reference_cell(slice.clone().into_cell()); Ok(*index)},
         }
     }
@@ -2202,10 +2218,7 @@ impl WorkchainDescr {
     }
 
     pub fn basic(&self) -> bool {
-        match self.format {
-            WorkchainFormat::Basic(_) => true,
-            _ => false
-        }
+        matches!(self.format, WorkchainFormat::Basic(_))
     }
 
 }
@@ -2723,7 +2736,112 @@ impl Serializable for ConfigParam39 {
     }
 }
 
-#[derive(Debug, Eq, Ord, PartialEq, PartialOrd)]
+///
+/// ConfigParam 40 struct
+///
+
+#[derive(Clone, Debug, Eq, PartialEq, Default)]
+pub struct ConfigParam40 {
+    pub slashing_config: SlashingConfig,
+}
+
+impl ConfigParam40 {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl Deserializable for ConfigParam40 {
+    fn read_from(&mut self, cell: &mut SliceData) -> Result<()> {
+        self.slashing_config.read_from(cell)?;
+        Ok(())
+    }
+}
+
+impl Serializable for ConfigParam40 {
+    fn write_to(&self, cell: &mut BuilderData) -> Result<()> {
+        self.slashing_config.write_to(cell)?;
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SlashingConfig {
+    pub slashing_period_mc_blocks_count : u32, //number of MC blocks for one slashing iteration
+    pub resend_mc_blocks_count : u32, //number of MC blocks to resend slashing messages in case they have not been delivered
+    pub min_samples_count : u32, //minimal number of samples to compute statistics parameters
+    pub collations_score_weight : u32, //weight for collations score in total score
+    pub signing_score_weight : u32, //weight for signing score in total score
+    pub min_slashing_protection_score : u32, //minimal score to protect from any slashing [0..100]
+    pub z_param_numerator : u32, //numerator for Z param of confidence interval
+    pub z_param_denominator : u32, //numerator for Z param of confidence interval
+}
+
+impl SlashingConfig {
+    pub fn new() -> Self {
+        Self {
+            slashing_period_mc_blocks_count : 100,
+            resend_mc_blocks_count : 4,
+            min_samples_count : 30,
+            collations_score_weight : 0,
+            signing_score_weight : 1,
+            min_slashing_protection_score : 70,
+            z_param_numerator : 2326, //98% confidence
+            z_param_denominator : 1000,
+        }
+    }
+}
+
+impl Default for SlashingConfig {
+    fn default() -> SlashingConfig {
+        Self::new()
+    }
+}
+
+const SLASHING_VERSION1_TAG: u8 = 1;
+
+impl Deserializable for SlashingConfig {
+    fn read_from(&mut self, cell: &mut SliceData) -> Result<()> {
+        match cell.get_next_byte()? {
+            SLASHING_VERSION1_TAG => {
+                self.slashing_period_mc_blocks_count.read_from(cell)?;
+                self.resend_mc_blocks_count.read_from(cell)?;
+                self.min_samples_count.read_from(cell)?;
+                self.collations_score_weight.read_from(cell)?;
+                self.signing_score_weight.read_from(cell)?;
+                self.min_slashing_protection_score.read_from(cell)?;
+                self.z_param_numerator.read_from(cell)?;
+                self.z_param_denominator.read_from(cell)?;
+            }
+            tag => {
+                fail!(
+                    BlockError::InvalidConstructorTag {
+                        t: tag as u32,
+                        s: "SlashingConfig".to_string()
+                    }
+                )
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Serializable for SlashingConfig {
+    fn write_to(&self, cell: &mut BuilderData) -> Result<()> {
+        cell.append_u8(SLASHING_VERSION1_TAG)?;
+        self.slashing_period_mc_blocks_count.write_to(cell)?;
+        self.resend_mc_blocks_count.write_to(cell)?;
+        self.min_samples_count.write_to(cell)?;
+        self.collations_score_weight.write_to(cell)?;
+        self.signing_score_weight.write_to(cell)?;
+        self.min_slashing_protection_score.write_to(cell)?;
+        self.z_param_numerator.write_to(cell)?;
+        self.z_param_denominator.write_to(cell)?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
 pub enum ParamLimitIndex {
     Underload = 0,
     Normal,
@@ -2752,13 +2870,6 @@ pub struct ParamLimits {
 
 impl ParamLimits {
 
-/*
-    /// new instance of ParamLimits
-    pub fn new() -> Self {
-        Self::default()
-    }
-*/
-
     pub fn with_limits(underload: u32, soft: u32, hard: u32) -> Result<Self> {
         let mut limits = [0u32; LIMIT_COUNT];
         Self::set_limits(&mut limits, underload, soft, hard)?;
@@ -2766,14 +2877,14 @@ impl ParamLimits {
     }
 
     pub fn classify(&self, value: u32) -> ParamLimitIndex {
-        if value >= self.limits[ParamLimitIndex::Medium as usize - 1] {
-            if value >= self.limits[ParamLimitIndex::Hard as usize - 1] {
+        if value >= self.medium() {
+            if value >= self.hard_limit() {
                 ParamLimitIndex::Hard
             } else {
                 ParamLimitIndex::Medium
             }
-        } else if value >= self.limits[ParamLimitIndex::Underload as usize] {
-            if value >= self.limits[ParamLimitIndex::Soft as usize - 1] {
+        } else if value >= self.underload() {
+            if value >= self.soft_limit() {
                 ParamLimitIndex::Soft
             } else {
                 ParamLimitIndex::Normal
@@ -2783,77 +2894,35 @@ impl ParamLimits {
         }
     }
 
-/*
-    pub fn limits(&self, index: ParamLimitIndex) -> u32 {
-        self.limits[index as usize]
+    pub fn fits(&self, level: ParamLimitIndex, value: u32) -> bool {
+        // *level*         *checks*
+        // Underload       value < unerload
+        // Normal          value < soft
+        // Soft            value < medium
+        // Medium          value < hard
+        // Hard            always true
+        level == ParamLimitIndex::Hard || value < self.limits[level as usize]
     }
-*/
+
+    pub fn fits_normal(&self, value: u32, percent: u32) -> bool {
+        value * 100 < self.soft_limit() * percent
+    }
 
     pub fn underload(&self) -> u32 {
         self.limits[ParamLimitIndex::Underload as usize]
     }
 
-/*
-    pub fn set_underload(&mut self, underload: u32) -> Result<()>{
-        if underload > self.soft_limit() {
-            fail!(
-                BlockError::InvalidArg(
-                    "`underload` have to be less or equal `soft_limit`".to_string()
-                )
-            )
-        }
-        self.limits[ParamLimitIndex::Underload as usize] = underload;
-        Ok(())
-    }
-*/
-
     pub fn soft_limit(&self) -> u32 {
         self.limits[ParamLimitIndex::Soft as usize - 1]
     }
 
-/*
-    pub fn set_soft_limit(&mut self, soft_limit: u32) -> Result<()>{
-        if soft_limit > self.hard_limit() {
-            fail!(
-                BlockError::InvalidArg(
-                    "`soft_limit` have to be less or equal `hard_limit`".to_string()
-                )
-            )
-        }
-        self.limits[ParamLimitIndex::Soft as usize] = soft_limit;
-        self.update_medium_limit();
-        Ok(())
+    pub fn medium(&self) -> u32 {
+        self.limits[ParamLimitIndex::Medium as usize - 1]
     }
-*/
 
     pub fn hard_limit(&self) -> u32 {
         self.limits[ParamLimitIndex::Hard as usize - 1]
     }
-
-/*
-    pub fn set_hard_limit(&mut self, hard_limit: u32) -> Result<()>{
-        if self.limits[ParamLimitIndex::Soft as usize] > hard_limit {
-            fail!(
-                BlockError::InvalidArg(
-                    "`hard_limit` have to be larger or equal `soft_limit`".to_string()
-                )
-            )
-        }
-        self.limits[ParamLimitIndex::Hard as usize] = hard_limit;
-        self.update_medium_limit();
-        Ok(())
-    }
-*/
-
-/*
-    pub fn medium_limit(&self) -> u32 {
-        self.limits[ParamLimitIndex::Medium as usize]
-    }
-
-    fn update_medium_limit(&mut self) {
-        self.limits[ParamLimitIndex::Medium as usize] = Self::compute_medium_limit(self.soft_limit(), self.hard_limit());
-    }
-*/
 
     fn compute_medium_limit(soft: u32, hard: u32) -> u32 {
         soft + ((hard - soft) >> 1)
@@ -2899,32 +2968,10 @@ impl Deserializable for ParamLimits {
                 }
             )
         }
-        let mut limits = [0u32; 3];
-        limits[0].read_from(slice)?;
-        limits[1].read_from(slice)?;
-        limits[2].read_from(slice)?;
-        Self::set_limits(&mut self.limits, limits[0], limits[1], limits[2])
-/*
-        self.limits[ParamLimitIndex::Underload as usize].read_from(slice)?;
-        self.limits[ParamLimitIndex::Soft as usize - 1].read_from(slice)?;
-        self.limits[ParamLimitIndex::Hard as usize - 1].read_from(slice)?;
-        if self.underload() > self.soft() {
-            fail!(
-                BlockError::InvalidData(
-                    "`underload` have to be less or equal `soft_limit`".to_string()
-                )
-            )
-        }
-        if self.soft() > self.hard_limit() {
-            fail!(
-                BlockError::InvalidData(
-                    "`soft_limit` have to be less or equal `hard_limit`".to_string()
-                )
-            )
-        }
-        self.update_medium_limit();
-        Ok(())
-*/
+        let underload = u32::construct_from(slice)?;
+        let soft = u32::construct_from(slice)?;
+        let hard = u32::construct_from(slice)?;
+        Self::set_limits(&mut self.limits, underload, soft, hard)
     }
 }
 
@@ -2951,62 +2998,37 @@ pub struct BlockLimits {
     bytes: ParamLimits,
     gas: ParamLimits,
     lt_delta: ParamLimits,
-//    start_lt: u64, // This field is always zero in Telegram's implementation
 }
 
 impl BlockLimits {
 
-/*
-    pub fn new() -> Self {
-        Self::default()
-    }
-*/
-
     pub fn with_limits(bytes: ParamLimits, gas: ParamLimits, lt_delta: ParamLimits) -> Self {
-        Self { bytes, gas, lt_delta /*, start_lt: 0*/ }
+        Self { bytes, gas, lt_delta }
     }
 
     pub fn bytes(&self) -> &ParamLimits {
         &self.bytes
     }
 
-/*
-    pub fn bytes_mut(&mut self) -> &mut ParamLimits {
-        &mut self.bytes
-    }
-*/
     pub fn gas(&self) -> &ParamLimits {
         &self.gas
     }
-
-/*
-    pub fn gas_mut(&mut self) -> &mut ParamLimits {
-        &mut self.gas
-    }
-*/
 
     pub fn lt_delta(&self) -> &ParamLimits {
         &self.lt_delta
     }
 
-/*
-    pub fn lt_delta_mut(&mut self) -> &mut ParamLimits {
-        &mut self.lt_delta
-    }
-
-    pub fn start_lt(&self) -> u64 {
-        self.start_lt
-    }
-*/
-
     pub fn fits(&self, level: ParamLimitIndex, bytes: u32, gas: u32, lt_delta: u32) -> bool {
-        let level = level as usize;
-        (level >= LIMIT_COUNT) ||
-        (gas < self.gas.limits[level]) &&
-        (bytes < self.bytes.limits[level]) &&
-        (lt_delta < self.lt_delta.limits[level])
+        self.gas.fits(level, gas) &&
+        self.bytes.fits(level, bytes) &&
+        self.lt_delta.fits(level, lt_delta)
     }
 
+    pub fn fits_normal(&self, bytes: u32, gas: u32, lt_delta: u32, percent: u32) -> bool {
+        self.gas.fits_normal(gas, percent) &&
+        self.bytes.fits_normal(bytes, percent) &&
+        self.lt_delta.fits_normal(lt_delta, percent)
+    }
 }
 
 impl Deserializable for BlockLimits {

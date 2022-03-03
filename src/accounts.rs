@@ -752,6 +752,7 @@ impl Account {
 
     /// obsolete - use try_freeze
     pub fn freeze_account(&mut self) { self.try_freeze().unwrap() }
+
     /// create frozen account - for test purposes
     pub fn frozen(
         addr: MsgAddressInt,
@@ -1050,8 +1051,8 @@ impl Account {
     }
     /// setting due payment
     pub fn set_due_payment(&mut self, due_payment: Option<Grams>) {
-        if let Some(s) = self.stuff_mut() {
-            s.storage_stat.due_payment = due_payment;
+        if let Some(stuff) = self.stuff_mut() {
+            stuff.storage_stat.due_payment = due_payment
         }
     }
 
@@ -1065,8 +1066,8 @@ impl Account {
 
     /// setting balance of the account
     pub fn set_balance(&mut self, balance: CurrencyCollection) {
-        if let Some(s) = self.stuff_mut() {
-            s.storage.balance = balance;
+        if let Some(stuff) = self.stuff_mut() {
+            stuff.storage.balance = balance
         }
     }
 

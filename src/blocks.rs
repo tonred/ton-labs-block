@@ -126,8 +126,8 @@ impl Display for BlockIdExt {
             self.shard_id.workchain_id(),
             self.shard_id.shard_prefix_as_str_with_tag(),
             self.seq_no,
-            self.root_hash.to_hex_string(),
-            self.file_hash.to_hex_string())
+            self.root_hash,
+            self.file_hash)
     }
 }
 
@@ -361,7 +361,7 @@ impl BlockInfo {
     }
 
     pub fn write_master_ref(&mut self, value: Option<&BlkMasterInfo>) -> Result<()> {
-        self.master_ref = value.map(|v| ChildCell::with_struct(v)).transpose()?;
+        self.master_ref = value.map(ChildCell::with_struct).transpose()?;
         Ok(())
     }
 
@@ -888,6 +888,21 @@ impl fmt::Display for ValueFlow {
     }
 }
 
+impl ValueFlow {
+    pub fn read_in_full_depth(&self) -> Result<()> {
+        self.from_prev_blk.other.iterate(|_value| Ok(true))?;
+        self.to_next_blk.other.iterate(|_value| Ok(true))?;
+        self.imported.other.iterate(|_value| Ok(true))?;
+        self.exported.other.iterate(|_value| Ok(true))?;
+        self.fees_collected.other.iterate(|_value| Ok(true))?;
+        self.fees_imported.other.iterate(|_value| Ok(true))?;
+        self.recovered.other.iterate(|_value| Ok(true))?;
+        self.created.other.iterate(|_value| Ok(true))?;
+        self.minted.other.iterate(|_value| Ok(true))?;
+        Ok(())
+    }
+}
+
 /*
 ext_blk_ref$_ start_lt:uint64 end_lt:uint64
     seq_no:uint32 hash:uint256 = ExtBlkRef;
@@ -1271,7 +1286,7 @@ impl Deserializable for TopBlockDescr {
                 if slice.remaining_references() == 0 {
                     fail!(BlockError::TvmException(ExceptionCode::CellUnderflow))
                 }
-                self.chain.push(slice.checked_drain_reference()?.clone());
+                self.chain.push(slice.checked_drain_reference()?);
                 if i != 0 {
                     if slice.remaining_references() == 0 {
                         fail!(BlockError::TvmException(ExceptionCode::CellUnderflow))
@@ -1328,17 +1343,17 @@ impl Serializable for TopBlockDescrSet {
 }
 
 impl Deserializable for TopBlockDescrSet {
-    fn read_from(&mut self, cell: &mut SliceData) -> Result<()> {
-        let tag = cell.get_next_u32()?;
+    fn construct_from(slice: &mut SliceData) -> Result<Self> {
+        let tag = slice.get_next_u32()?;
         if tag != TOPBLOCK_DESCR_SET_TAG {
             fail!(
                 BlockError::InvalidConstructorTag {
-                    t: tag as u32,
+                    t: tag,
                     s: "TopBlockDescrSet".to_string()
                 }
             )
         }
-        self.collection = TopBlockDescrCollection::construct_from(cell)?;
-        Ok(())
+        let collection = Deserializable::construct_from(slice)?;
+        Ok(Self { collection })
     }
 }

@@ -324,7 +324,8 @@ impl FromStr for MsgAddress {
                         )
                 }
             ).transpose()?
-            .map(AnycastInfo::with_rewrite_pfx).transpose()
+            .map(AnycastInfo::with_rewrite_pfx)
+            .transpose()
             .map_err(
                 |err| BlockError::InvalidArg(
                     format!("anycast is not correct: {}", err)
@@ -557,11 +558,10 @@ impl fmt::Display for MsgAddressIntOrNone {
 impl Serializable for MsgAddressIntOrNone {
     fn write_to(&self, cell: &mut BuilderData) -> Result<()> {
         match self {
-            MsgAddressIntOrNone::None       => {
+            MsgAddressIntOrNone::None => {
                 cell.append_raw(&[0x00], 2)?;
-
-            },
-            MsgAddressIntOrNone::Some(addr) => addr.write_to(cell)?,
+            }
+            MsgAddressIntOrNone::Some(addr) => addr.write_to(cell)?
         }
         Ok(())
     }
@@ -1302,14 +1302,25 @@ impl Message {
     ///
     /// Get value transmitted by the message
     ///
-    pub fn get_value(&self) -> Option<&CurrencyCollection> {
+    pub fn get_value(&self) -> Option<&CurrencyCollection> { self.value() }
+
+    ///
+    /// Get value transmitted by the message
+    ///
+    pub fn value(&self) -> Option<&CurrencyCollection> {
         self.header.get_value()
     }
 
     ///
     /// Get value transmitted by the message
     ///
-    pub fn get_value_mut(&mut self) -> Option<&mut CurrencyCollection> {
+    pub fn get_value_mut(&mut self) -> Option<&mut CurrencyCollection> { self.value_mut() }
+
+
+    ///
+    /// Get value transmitted by the message
+    ///
+    pub fn value_mut(&mut self) -> Option<&mut CurrencyCollection> {
         self.body_to_ref = None;
         self.init_to_ref = None;
         self.header.get_value_mut()
@@ -1328,30 +1339,21 @@ impl Message {
     /// Is message an internal?
     ///
     pub fn is_internal(&self) -> bool {
-        match self.header {
-            CommonMsgInfo::IntMsgInfo(_) => true,
-            _ => false
-        }
+        matches!(self.header, CommonMsgInfo::IntMsgInfo(_))
     }
 
     ///
     /// Is message an external inbound?
     ///
     pub fn is_inbound_external(&self) -> bool {
-        match self.header {
-            CommonMsgInfo::ExtInMsgInfo(_) => true,
-            _ => false
-        }
+        matches!(self.header, CommonMsgInfo::ExtInMsgInfo(_))
     }
 
     ///
     /// Is message an external outbound?
     ///
     pub fn is_outbound_external(&self) -> bool {
-        match self.header {
-            CommonMsgInfo::ExtOutMsgInfo(_) => true,
-            _ => false
-        }
+        matches!(self.header, CommonMsgInfo::ExtOutMsgInfo(_))
     }
 
     ///

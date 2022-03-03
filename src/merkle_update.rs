@@ -438,8 +438,7 @@ impl MerkleUpdate {
         Ok(LevelMask::with_mask(mask | (1 << depth)))
     }
 
-    pub(crate) fn make_pruned_branch_cell(cell: &Cell, merkle_depth: u8)
-        -> Result<BuilderData> {
+    pub(crate) fn make_pruned_branch_cell(cell: &Cell, merkle_depth: u8) -> Result<BuilderData> {
 
         let mut result = BuilderData::new();
         let level_mask = Self::add_one_hash(cell, merkle_depth)?;

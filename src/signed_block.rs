@@ -147,7 +147,7 @@ impl SignedBlock {
 	pub fn add_signature(&mut self, key: &ed25519_dalek::Keypair) {
 		let signature = key.sign(self.combined_hash.as_slice());
 		let key = super::id_from_key(&key.public);
-		self.signatures.insert(key, BlockSignature {0: signature});
+		self.signatures.insert(key, BlockSignature(signature));
 	}
 
 	pub fn verify_signature(&self, key: &ed25519_dalek::PublicKey) -> Result<bool> {

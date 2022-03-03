@@ -74,7 +74,7 @@ impl Deserializable for OutActions {
     fn read_from(&mut self, cell: &mut SliceData) -> Result<()> {
         let mut cell = cell.clone();
         while cell.remaining_references() != 0 {
-            let prev_cell = cell.checked_drain_reference()?.clone();
+            let prev_cell = cell.checked_drain_reference()?;
             let mut action = OutAction::default();
             action.read_from(&mut cell)?;
             self.push_front(action);

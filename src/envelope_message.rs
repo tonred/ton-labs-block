@@ -512,7 +512,7 @@ impl MsgEnvelope {
     pub fn same_workchain(&self) -> Result<bool> {
         let msg = self.read_message()?;
         debug_assert!(msg.is_internal(), "Message with hash {:x} is not internal",
-                      self.message_cell().repr_hash());
+            self.message_cell().repr_hash());
         if let (Some(src), Some(dst)) = (msg.src_ref(), msg.dst_ref()) {
             return Ok(src.get_workchain_id() == dst.get_workchain_id())
         }

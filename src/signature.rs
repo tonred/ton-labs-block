@@ -12,16 +12,17 @@
 */
 
 use crate::{
-    blocks::{BlockIdExt},
+    define_HashmapE,
+    Serializable, Deserializable,
+    blocks::BlockIdExt,
     error::BlockError,
     validators::ValidatorBaseInfo,
-    Serializable, Deserializable,
     validators::ValidatorDescr
 };
-use ed25519::signature::{Verifier};
+use ed25519::signature::Verifier;
 use std::{
     io::{Cursor, Write},
-    str::FromStr
+    str::FromStr,
 };
 use ton_types::{
     fail, Result,
@@ -125,11 +126,11 @@ impl Serializable for CryptoSignature {
 
 impl Deserializable for CryptoSignature {
     fn read_from(&mut self, cell: &mut SliceData) -> Result<()> {
-        let tag = cell.get_next_bits(4)?;
-        if tag[0] != 5 << 4 {
+        let tag = cell.get_next_int(4)? as u8;
+        if tag != CRYPTO_SIGNATURE_TAG {
             fail!(
                 BlockError::InvalidConstructorTag {
-                    t: tag[0] as u32,
+                    t: tag as u32,
                     s: "CryptoSignature".to_string()
                 }
             )
@@ -204,8 +205,7 @@ impl SigPubKey {
         Self::default()
     }
 
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self>
-    {
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
         Ok(SigPubKey(ed25519_dalek::PublicKey::from_bytes(bytes)?))
     }
 
@@ -291,35 +291,38 @@ block_signatures_pure#_
     signatures:(HashmapE 16 CryptoSignaturePair)
 = BlockSignaturesPure;
 */
+
+define_HashmapE!{CryptoSignaturePairDict, 16, CryptoSignaturePair}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BlockSignaturesPure {
     sig_count: u32,
     sig_weight: u64,
-    signatures: HashmapE,
+    signatures: CryptoSignaturePairDict,
 }
 
 impl Default for BlockSignaturesPure {
     fn default() -> Self {
-        BlockSignaturesPure {
-            sig_count: 0,
-            sig_weight: 0,
-            signatures: HashmapE::with_bit_len(16),
-        }
+        Self::new()
     }
 }
 
 impl BlockSignaturesPure {
     /// New empty instance of BlockSignaturesPure
-    pub fn new() -> Self {
-        BlockSignaturesPure::default()
+    pub const fn new() -> Self {
+        Self {
+            sig_count: 0,
+            sig_weight: 0,
+            signatures: CryptoSignaturePairDict::new(),
+        }
     }
 
     /// New instance of BlockSignaturesPure
-    pub fn with_weight(weight: u64) -> Self {
-        BlockSignaturesPure {
+    pub const fn with_weight(sig_weight: u64) -> Self {
+        Self {
             sig_count: 0,
-            sig_weight: weight,
-            signatures: HashmapE::with_bit_len(16),
+            sig_weight,
+            signatures: CryptoSignaturePairDict::new(),
         }
     }
 
@@ -339,16 +342,15 @@ impl BlockSignaturesPure {
 
     /// Add crypto signature pair to BlockSignaturesPure
     pub fn add_sigpair(&mut self, signature: CryptoSignaturePair) {
+        self.signatures.set(&(self.sig_count as u16), &signature).unwrap();
         self.sig_count += 1;
-        let key = (self.sig_count as u16).serialize().unwrap();
-        self.signatures.set_builder(key.into(), &signature.write_to_new_cell().unwrap()).unwrap();
     }
 
     pub fn signatures(&self) -> &HashmapE {
-        &self.signatures
+        &self.signatures.0
     }
 
-    pub fn check_signatures(&self, validators_list: Vec<ValidatorDescr>, data: &[u8]) -> Result<u64> {
+    pub fn check_signatures(&self, validators_list: &[ValidatorDescr], data: &[u8]) -> Result<u64> {
         // Calc validators short ids
         let mut validators_map = FxHashMap::with_capacity_and_hasher(validators_list.len(), Default::default());
         for vd in validators_list {

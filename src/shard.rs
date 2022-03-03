@@ -176,6 +176,7 @@ impl AccountIdPrefixFull {
     /// Result: (transit_addr_dest_bits, nh_addr_dest_bits)
     /// TBD
     #[allow(dead_code)]
+    #[allow(clippy::many_single_char_names)]
     pub(crate) fn perform_hypercube_routing(
         &self,
         dest: &AccountIdPrefixFull,
@@ -540,7 +541,7 @@ impl ShardIdent {
         self.prefix
     }
 
-    pub fn shard_prefix_without_tag(self) -> u64 {
+    pub fn shard_prefix_without_tag(&self) -> u64 {
         self.prefix - self.prefix_lower_bits()
     }
 

@@ -29,7 +29,7 @@ use ton_types::{
     error, fail, Result,
     AccountId, UInt256,
     BuilderData, Cell, SliceData, IBitstring,
-    HashmapType, HashmapRemover, HashmapSubtree, hm_label,
+    HashmapType, HashmapSubtree, hm_label,
 };
 
 
@@ -161,7 +161,6 @@ impl OutMsgDescr {
 // _ (HashmapAugE 352 EnqueuedMsg uint64) = OutMsgQueue;
 // 352 = 32 - dest workchain_id, 64 - first 64 bit of dest account address, 256 - message hash
 define_HashmapAugE!(OutMsgQueue, 352, OutMsgQueueKey, EnqueuedMsg, MsgTime);
-impl HashmapRemover for OutMsgQueue {}
 impl HashmapSubtree for OutMsgQueue {}
 // impl HashmapAugRemover<OutMsgQueueKey, EnqueuedMsg, MsgTime> for OutMsgQueue {}
 
@@ -217,6 +216,7 @@ impl OutMsgQueueKey {
         acc.clone().get_next_u64().unwrap()
     }
 
+    // #[deprecated(note = "use Display converter in format!")]
     pub fn to_hex_string(&self) -> String {
         format!("{}:{:016X}, hash: {:x}", self.workchain_id, self.prefix, self.hash)
     }
@@ -245,7 +245,7 @@ impl fmt::LowerHex for OutMsgQueueKey {
         if f.alternate() {
             write!(f, "0x")?;
         }
-        write!(f, "{}", self.to_hex_string())
+        write!(f, "{}:{:016X}, hash: {:x}", self.workchain_id, self.prefix, self.hash)
     }
 }
 

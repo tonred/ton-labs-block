@@ -58,6 +58,7 @@ pub struct ShardIdentFull {
 }
 
 impl ShardIdentFull {
+    // #[deprecated(note = "use Display converter in format!")]
     pub fn to_hex_string(&self) -> String {
         format!("{}:{:016X}", self.workchain_id, self.prefix)
     }
@@ -79,6 +80,18 @@ impl Deserializable for ShardIdentFull {
     }
 }
 
+impl fmt::Display for ShardIdentFull {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}:{:016X}", self.workchain_id, self.prefix)
+    }
+}
+
+impl fmt::LowerHex for ShardIdentFull {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}:{:016X}", self.workchain_id, self.prefix)
+    }
+}
+
 impl ShardHashes {
     pub fn iterate_shards_for_workchain<F>(&self, workchain_id: i32, mut func: F) -> Result<()>
         where F: FnMut(ShardIdent, ShardDescr) -> Result<bool> {
@@ -92,8 +105,8 @@ impl ShardHashes {
     }
     pub fn iterate_shards<F>(&self, mut func: F) -> Result<bool>
     where F: FnMut(ShardIdent, ShardDescr) -> Result<bool> {
-        self.iterate_with_keys(|wc_id: i32, InRefValue(shardes_tree)| {
-            shardes_tree.iterate(|prefix, shard_descr| {
+        self.iterate_with_keys(|wc_id: i32, InRefValue(shards)| {
+            shards.iterate(|prefix, shard_descr| {
                 let shard_ident = ShardIdent::with_prefix_slice(wc_id, prefix)?;
                 func(shard_ident, shard_descr)
             })
@@ -101,8 +114,8 @@ impl ShardHashes {
     }
     pub fn iterate_shards_with_siblings<F>(&self, mut func: F) -> Result<bool>
     where F: FnMut(ShardIdent, ShardDescr, Option<ShardDescr>) -> Result<bool> {
-        self.iterate_with_keys(|wc_id: i32, InRefValue(shardes_tree)| {
-            shardes_tree.iterate_pairs(|prefix, shard_descr, sibling| {
+        self.iterate_with_keys(|wc_id: i32, InRefValue(shards)| {
+            shards.iterate_pairs(|prefix, shard_descr, sibling| {
                 let shard_ident = ShardIdent::with_prefix_slice(wc_id, prefix.into_cell()?.into())?;
                 func(shard_ident, shard_descr, sibling)
             })
@@ -173,7 +186,7 @@ impl ShardHashes {
                 new_shards.insert(r, vec![block_id]);
             } else if descr.before_merge {
                 let p = shard.merge()?;
-                new_shards.entry(p).or_insert_with(std::vec::Vec::new).push(block_id)
+                new_shards.entry(p).or_insert_with(Vec::new).push(block_id)
             } else {
                 new_shards.insert(shard, vec![block_id]);
             }
@@ -193,14 +206,14 @@ impl ShardHashes {
         if shard1.shard().is_ancestor_for(shard) {
             return Ok(shard1.descr.next_catchain_seqno)
         } else if !shard.is_parent_for(shard1.shard()) {
-            fail!("get_shard_cc_seqno: invalid shard1 {} for {}", &shard1.shard(), shard)
+            fail!("get_shard_cc_seqno: invalid shard1 {} for {}", shard1.shard(), shard)
         }
 
         let shard2 = self.find_shard(&shard.right_ancestor_mask()?)?
             .ok_or_else(|| error!("get_shard_cc_seqno: can't find shard2"))?;
 
         if !shard.is_parent_for(shard2.shard()) {
-            fail!("get_shard_cc_seqno: invalid shard2 {} for {}", &shard2.shard(), shard)
+            fail!("get_shard_cc_seqno: invalid shard2 {} for {}", shard2.shard(), shard)
         }
 
         Ok(std::cmp::max(shard1.descr.next_catchain_seqno, shard2.descr.next_catchain_seqno) + 1)
@@ -320,7 +333,7 @@ impl McShardRecord {
                     want_split: info.want_split(),
                     want_merge: info.want_merge(),
                     nx_cc_updated: false, // by t-node
-                    flags: info.flags(),
+                    flags: info.flags() & !7,
                     next_catchain_seqno: info.gen_catchain_seqno(),
                     next_validator_shard: info.shard().shard_prefix_with_tag(),
                     min_ref_mc_seqno: info.min_ref_mc_seqno(),
@@ -440,12 +453,13 @@ impl McBlockExtra {
 
     pub fn config(&self) -> Option<&ConfigParams> { self.config.as_ref() }
     pub fn config_mut(&mut self) -> &mut Option<ConfigParams> { &mut self.config }
+    pub fn set_config(&mut self, config: ConfigParams) { self.config = Some(config) }
 
     pub fn read_recover_create_msg(&self) -> Result<Option<InMsg>> {
         self.recover_create_msg.as_ref().map(|mr| mr.read_struct()).transpose()
     }
     pub fn write_recover_create_msg(&mut self, value: Option<&InMsg>) -> Result<()> {
-        self.recover_create_msg = value.map(|v| ChildCell::with_struct(v)).transpose()?;
+        self.recover_create_msg = value.map(ChildCell::with_struct).transpose()?;
         Ok(())
     }
     pub fn recover_create_msg_cell(&self) -> Option<Cell> {
@@ -456,7 +470,7 @@ impl McBlockExtra {
         self.mint_msg.as_ref().map(|mr| mr.read_struct()).transpose()
     }
     pub fn write_mint_msg(&mut self, value: Option<&InMsg>) -> Result<()> {
-        self.mint_msg = value.map(|v| ChildCell::with_struct(v)).transpose()?;
+        self.mint_msg = value.map(ChildCell::with_struct).transpose()?;
         Ok(())
     }
     pub fn mint_msg_cell(&self) -> Option<Cell> {
@@ -716,18 +730,12 @@ impl OldMcBlocksInfo {
             .ok_or_else(|| error!("Block with given seq_no {} is not found", id.seq_no()))?;
 
         if found_id.blk_ref.root_hash != *id.root_hash() {
-            fail!(
-                "Given block has invalid root hash: found {}, expected {}",
-                found_id.blk_ref.root_hash.to_hex_string(),
-                id.root_hash().to_hex_string()
-            )
+            fail!("Given block has invalid root hash: found {:x}, expected {:x}",
+                found_id.blk_ref.root_hash, id.root_hash())
         }
         if found_id.blk_ref.file_hash != *id.file_hash() {
-            fail!(
-                "Given block has invalid file hash: found {}, expected {}",
-                found_id.blk_ref.file_hash.to_hex_string(),
-                id.file_hash().to_hex_string()
-            )
+            fail!("Given block has invalid file hash: found {:x}, expected {:x}",
+                found_id.blk_ref.file_hash, id.file_hash())
         }
         if let Some(is_key) = is_key_opt {
             if is_key != found_id.key {
@@ -1292,22 +1300,13 @@ impl ShardDescr {
         self.split_merge_at == other.split_merge_at
     }
     pub fn is_fsm_merge(&self) -> bool {
-        match self.split_merge_at {
-            FutureSplitMerge::Merge{merge_utime: _, interval: _} => true,
-            _ => false
-        }
+        matches!(self.split_merge_at, FutureSplitMerge::Merge{merge_utime: _, interval: _})
     }
     pub fn is_fsm_split(&self) -> bool {
-        match self.split_merge_at {
-            FutureSplitMerge::Split{split_utime: _, interval: _} => true,
-            _ => false
-        }
+        matches!(self.split_merge_at, FutureSplitMerge::Split{split_utime: _, interval: _})
     }
     pub fn is_fsm_none(&self) -> bool {
-        match self.split_merge_at {
-            FutureSplitMerge::None => true,
-            _ => false
-        }
+        matches!(self.split_merge_at, FutureSplitMerge::None)
     }
     pub fn fsm_utime(&self) -> u32 {
         match self.split_merge_at {
@@ -1362,6 +1361,10 @@ impl Deserializable for ShardDescr {
         self.want_merge = (flags >> 4) & 1 == 1;
         self.nx_cc_updated = (flags >> 3) & 1 == 1;
 
+        if (flags & 7) != 0 {
+            fail!("flags & 7 in ShardDescr must be zero, but {}", flags)
+        }
+
         self.next_catchain_seqno.read_from(slice)?;
         self.next_validator_shard.read_from(slice)?;
         self.min_ref_mc_seqno.read_from(slice)?;
@@ -1406,7 +1409,9 @@ impl Serializable for ShardDescr {
         if self.nx_cc_updated {
             flags |= 1 << 3;
         }
-        flags |= self.flags & 0x7;
+        if (self.flags & 7) != 0 {
+            fail!("flags & 7 must be zero, but it {}", self.flags)
+        }
 
         flags.write_to(cell)?;
 
@@ -1428,15 +1433,9 @@ impl Serializable for ShardDescr {
 /*
 master_info$_ master:ExtBlkRef = BlkMasterInfo;
 */
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct BlkMasterInfo {
     pub master: ExtBlkRef
-}
-
-impl Default for BlkMasterInfo {
-    fn default() -> Self {
-        BlkMasterInfo { master: ExtBlkRef::default() }
-    }
 }
 
 impl Deserializable for BlkMasterInfo {
