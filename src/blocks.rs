@@ -126,8 +126,8 @@ impl Display for BlockIdExt {
             self.shard_id.workchain_id(),
             self.shard_id.shard_prefix_as_str_with_tag(),
             self.seq_no,
-            self.root_hash,
-            self.file_hash)
+            self.root_hash.as_hex_string(),
+            self.file_hash.as_hex_string())
     }
 }
 
