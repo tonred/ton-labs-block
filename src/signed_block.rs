@@ -21,7 +21,7 @@ use sha2::Digest;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::convert::TryInto;
-use std::io::{Write, Read, Cursor};
+use std::io::Write;
 use ton_types::{
     BuilderData, fail, Result, SliceData,
     BagOfCells, deserialize_tree_of_cells,
@@ -184,7 +184,9 @@ impl SignedBlock {
 		Ok(())
 	}
 
-	pub fn read_from<T>(src: &mut T) -> Result<Self> where T: Read {
+	pub fn read_from<T>(mut src: &[u8]) -> Result<Self> {
+		let src = &mut src;
+
 		// first - signed block's bytes (with block hash instead block bytes)
 		let cell = deserialize_tree_of_cells(src)?;
 
@@ -198,11 +200,9 @@ impl SignedBlock {
 		signatures.read_from(&mut cell.reference(1)?.into())?;
 
 		// second - block's bytes
-		let mut serialized_block = Vec::new();
-		src.read_to_end(&mut serialized_block)?;
+		let serialized_block = src.to_vec();
 
-		let mut serialized_block_cur = Cursor::new(serialized_block);
-		let cell = deserialize_tree_of_cells(&mut serialized_block_cur)?;
+		let cell = deserialize_tree_of_cells(&mut serialized_block.as_slice())?;
 		let mut block = Block::default();
 		block.read_from(&mut cell.clone().into())?;
 
@@ -221,7 +221,7 @@ impl SignedBlock {
 			block_repr_hash: block_repr_hash.into(),
 			block_serialize_hash: serlz_hash.into(),
 			combined_hash,
-			serialized_block: serialized_block_cur.into_inner(),
+			serialized_block,
 			signatures })
 	}
 

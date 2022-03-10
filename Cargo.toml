@@ -16,7 +16,6 @@
 
 [package]
 edition = "2021"
-build = "build.rs"
 name = "ton_block"
 version = "1.7.14"
 

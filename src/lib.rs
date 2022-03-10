@@ -182,8 +182,8 @@ pub trait Deserializable: Default {
         Self::construct_from_cell(slice.checked_drain_reference()?)
     }
     /// adapter for tests
-    fn construct_from_bytes(bytes: &[u8]) -> Result<Self> {
-        let cell = ton_types::deserialize_tree_of_cells(&mut std::io::Cursor::new(bytes))?;
+    fn construct_from_bytes(mut bytes: &[u8]) -> Result<Self> {
+        let cell = ton_types::deserialize_tree_of_cells(&mut bytes)?;
         Self::construct_from(&mut cell.into())
     }
     /// adapter for tests
