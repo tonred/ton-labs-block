@@ -15,7 +15,7 @@ use crate::{
     error::BlockError,
     messages::Message,
     types::{CurrencyCollection},
-    Serializable, Deserializable,
+    Serializable, Deserializable
 };
 use std::collections::LinkedList;
 use ton_types::{
@@ -213,6 +213,7 @@ impl OutAction {
         });
         OutAction::ChangeLibrary { mode, code, hash }
     }
+
 }
 
 impl Serializable for OutAction {

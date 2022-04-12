@@ -16,6 +16,7 @@ use std::cmp::Ordering;
 use std::fmt::{self, Display, Formatter};
 use std::marker::PhantomData;
 use std::ops::Deref;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -54,7 +55,7 @@ macro_rules! define_VarIntegerN {
         impl $varname {
 
             fn get_len(value: &BigInt) -> usize {
-                ((value.bits() + 7) >> 3) as usize
+                (value.bits() as usize + 7) >> 3
             }
 
             pub fn value(&self) -> &BigInt {
@@ -134,6 +135,25 @@ macro_rules! define_VarIntegerN {
                 let val = BigInt::from(value.into());
                 Self::check_owerflow(&val).expect("Integer overflow");
                 $varname(val)
+            }
+        }
+
+        impl FromStr for $varname {
+            type Err = anyhow::Error;
+
+            fn from_str(string: &str) -> Result<Self> {
+                let result = if let Some(string) = string.strip_prefix("0x") {
+                    BigInt::parse_bytes(string.as_bytes(), 16)
+                } else {
+                    BigInt::parse_bytes(string.as_bytes(), 10)
+                };
+                match result {
+                    Some(val) => {
+                        Self::check_owerflow(&val)?;
+                        Ok(Self(val))
+                    }
+                    None => fail!("cannot parse {} {}", std::any::type_name::<Self>(), string)
+                }
             }
         }
 
@@ -359,9 +379,21 @@ impl From<i32> for Grams {
     }
 }
 
+impl FromStr for Grams {
+    type Err = anyhow::Error;
+
+    fn from_str(string: &str) -> Result<Self> {
+        if let Some(string) = string.strip_prefix("0x") {
+            Ok(Self(u128::from_str_radix(string, 16)?))
+        } else {
+            Ok(Self(string.parse()?))
+        }
+    }
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 ///
-/// munber ## N
+/// number ## N
 /// n<=X
 ///
 macro_rules! define_NumberN_up32bit {

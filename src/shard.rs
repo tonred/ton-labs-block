@@ -928,6 +928,10 @@ impl ShardStateUnsplit {
         self.before_split = value
     }
 
+    pub fn accounts_cell(&self) -> Cell {
+        self.accounts.cell()
+    }
+
     pub fn read_accounts(&self) -> Result<ShardAccounts> {
         self.accounts.read_struct()
     }

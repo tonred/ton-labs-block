@@ -1354,8 +1354,8 @@ impl Transaction {
     }
 
     /// get hash of previous transaction
-    pub fn prev_trans_hash(&self) -> UInt256 {
-        self.prev_trans_hash
+    pub fn prev_trans_hash(&self) -> &UInt256 {
+        &self.prev_trans_hash
     }
 
     pub fn set_prev_trans_hash(&mut self, hash: UInt256) {
@@ -1389,12 +1389,17 @@ impl Transaction {
     /// get total fees
     pub fn total_fees(&self) -> &CurrencyCollection { &self.total_fees }
 
+    /// get total fees mutable
+    pub fn total_fees_mut(&mut self) -> &mut CurrencyCollection {
+        &mut self.total_fees
+    }
+
     ///
     /// Calculate total transaction fees
     /// transaction fees is the amount fee for all out-messages
     ///
-    pub fn calc_total_fees(&mut self) -> &CurrencyCollection {
-        self.total_fees = CurrencyCollection::default();
+//    pub fn calc_total_fees(&mut self) -> &CurrencyCollection {
+//        self.total_fees = CurrencyCollection::default();
         // TODO uncomment after merge with feature-block-builder
         /*for msg in self.out_msgs.iter() {
             if let Some(fee) = msg.get_fee()
@@ -1402,8 +1407,8 @@ impl Transaction {
                 total += fee;
             }
         }*/
-        &self.total_fees
-    }
+//        &self.total_fees
+//    }
 
     pub fn read_in_msg(&self) -> Result<Option<Message>> {
         Ok(
@@ -1543,6 +1548,7 @@ impl Transaction {
         }
         None
     }
+
 }
 
 impl PartialEq for Transaction {

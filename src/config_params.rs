@@ -314,17 +314,19 @@ impl ConfigParams {
 }
 
 pub enum GlobalCapabilities {
-    CapIhrEnabled = 1,
-    CapCreateStatsEnabled = 2,
-    CapBounceMsgBody = 4,
-    CapReportVersion = 8,
-    CapSplitMergeTransactions = 16,
-    CapShortDequeue = 32,
-    CapMbppEnabled = 64,
-    CapFastStorageStat = 128,
-    CapInitCodeHash = 256,
-    CapOffHypercube = 512,
-    CapMycode = 1024,
+    CapIhrEnabled             = 0x0001,
+    CapCreateStatsEnabled     = 0x0002,
+    CapBounceMsgBody          = 0x0004,
+    CapReportVersion          = 0x0008,
+    CapSplitMergeTransactions = 0x0010,
+    CapShortDequeue           = 0x0020,
+    CapMbppEnabled            = 0x0040,
+    CapFastStorageStat        = 0x0080,
+    CapInitCodeHash           = 0x0100,
+    CapOffHypercube           = 0x0200,
+    CapMycode                 = 0x0400,
+    CapSetLibCode             = 0x0800,
+    CapFixTupleIndexBug       = 0x1000
 }
 
 impl ConfigParams {
@@ -599,7 +601,10 @@ impl ConfigParamEnum {
             ConfigParamEnum::ConfigParam37(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(37)},
             ConfigParamEnum::ConfigParam39(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(39)},
             ConfigParamEnum::ConfigParam40(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(40)},
-            ConfigParamEnum::ConfigParamAny(index, slice) => { cell.append_reference_cell(slice.clone().into_cell()); Ok(*index)},
+            ConfigParamEnum::ConfigParamAny(index, slice) => {
+                cell.append_reference_cell(slice.clone().into_cell()); 
+                Ok(*index)
+            },
         }
     }
 }
