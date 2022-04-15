@@ -265,6 +265,16 @@ impl ShardIdent {
         }
     }
 
+    /// # Safety
+    ///
+    /// `shard_prefix_tagged` must be a valid shard prefix
+    pub const unsafe fn with_tagged_prefix_unchecked(workchain_id: i32, shard_prefix_tagged: u64) -> Self {
+        ShardIdent {
+            workchain_id,
+            prefix: shard_prefix_tagged,
+        }
+    }
+
     pub fn with_prefix_len(shard_pfx_len: u8, workchain_id: i32, shard_prefix: u64) -> Result<Self> {
         if shard_pfx_len > MAX_SPLIT_DEPTH {
             fail!(BlockError::InvalidArg(

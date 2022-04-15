@@ -397,10 +397,7 @@ impl ValidatorSet {
     }
 
     pub fn validator_by_pub_key(&self, pub_key: &[u8; 32]) -> Option<&ValidatorDescr> {
-        self.list.iter().find_map(|item| match item.public_key.as_slice() == pub_key {
-            true => Some(item),
-            false => None
-        })
+        self.list.iter().find(|item| item.public_key.as_slice() == pub_key)
     }
 
     pub fn catchain_seqno(&self) -> u32 {
