@@ -268,6 +268,12 @@ impl ConfigParams {
             _ => fail!("fundamental_smc_addr not found in config")
         }
     }
+    pub fn delector_parameters(&self) -> Result<DelectorParams> {
+        match self.config(30)? {
+            Some(ConfigParamEnum::ConfigParam30(param)) => Ok(param),
+            _ => fail!("delector parameters not found in config")
+        }
+    }
     pub fn prev_validator_set(&self) -> Result<ValidatorSet> {
         let vset = match self.config(33)? {
             Some(ConfigParamEnum::ConfigParam33(param)) => param.prev_temp_validators,
@@ -313,6 +319,7 @@ impl ConfigParams {
     // TODO 39 validator signed temp keys
 }
 
+#[repr(u64)]
 pub enum GlobalCapabilities {
     CapIhrEnabled             = 0x0001,
     CapCreateStatsEnabled     = 0x0002,
@@ -326,7 +333,8 @@ pub enum GlobalCapabilities {
     CapOffHypercube           = 0x0200,
     CapMycode                 = 0x0400,
     CapSetLibCode             = 0x0800,
-    CapFixTupleIndexBug       = 0x1000
+    CapFixTupleIndexBug       = 0x1000,
+    CapDelections             = 0x4000
 }
 
 impl ConfigParams {
@@ -493,6 +501,7 @@ pub enum ConfigParamEnum {
     ConfigParam25(MsgForwardPrices),
     ConfigParam28(CatchainConfig),
     ConfigParam29(ConfigParam29),
+    ConfigParam30(DelectorParams),
     ConfigParam31(ConfigParam31),
     ConfigParam32(ConfigParam32),
     ConfigParam33(ConfigParam33),
@@ -550,6 +559,7 @@ impl ConfigParamEnum {
             25 => { read_config!(ConfigParam25, MsgForwardPrices, slice) },
             28 => { read_config!(ConfigParam28, CatchainConfig, slice) },
             29 => { read_config!(ConfigParam29, ConfigParam29, slice) },
+            30 => { read_config!(ConfigParam30, DelectorParams, slice) },
             31 => { read_config!(ConfigParam31, ConfigParam31, slice) },
             32 => { read_config!(ConfigParam32, ConfigParam32, slice) },
             33 => { read_config!(ConfigParam33, ConfigParam33, slice) },
@@ -592,6 +602,7 @@ impl ConfigParamEnum {
             ConfigParamEnum::ConfigParam25(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(25)},
             ConfigParamEnum::ConfigParam28(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(28)},
             ConfigParamEnum::ConfigParam29(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(29)},
+            ConfigParamEnum::ConfigParam30(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(30)},
             ConfigParamEnum::ConfigParam31(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(31)},
             ConfigParamEnum::ConfigParam32(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(32)},
             ConfigParamEnum::ConfigParam33(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(33)},
@@ -843,7 +854,7 @@ impl Deserializable for GlobalVersion {
             fail!(
                 BlockError::InvalidConstructorTag {
                     t: tag as u32,
-                    s: "GlobalVersion".to_string()
+                    s: std::any::type_name::<Self>().to_string()
                 }
             )
         }
@@ -975,7 +986,7 @@ impl Deserializable for BlockCreateFees {
             fail!(
                 BlockError::InvalidConstructorTag {
                     t: tag as u32,
-                    s: "BlockCreateFees".to_string()
+                    s: std::any::type_name::<Self>().to_string()
                 }
             )
         }
@@ -1183,7 +1194,7 @@ impl Deserializable for StoragePrices {
             fail!(
                 BlockError::InvalidConstructorTag {
                     t: tag as u32,
-                    s: "StoragePrices".to_string()
+                    s: std::any::type_name::<Self>().to_string()
                 }
             )
         }
@@ -1390,7 +1401,7 @@ impl Deserializable for GasLimitsPrices {
                     fail!(
                         BlockError::InvalidConstructorTag {
                             t: tag as u32,
-                            s: "GasLimitsPrices".to_string()
+                            s: std::any::type_name::<Self>().to_string()
                         }
                     )
                 }
@@ -1470,7 +1481,7 @@ impl Deserializable for MsgForwardPrices {
             fail!(
                 BlockError::InvalidConstructorTag {
                     t: tag as u32,
-                    s: "MsgForwardPrices".to_string()
+                    s: std::any::type_name::<Self>().to_string()
                 }
             )
         }
@@ -1554,7 +1565,7 @@ impl Deserializable for CatchainConfig {
             fail!(
                 BlockError::InvalidConstructorTag {
                     t: tag as u32,
-                    s: "CatchainConfig".to_string()
+                    s: std::any::type_name::<Self>().to_string()
                 }
             )
         }
@@ -1651,7 +1662,7 @@ impl Deserializable for ConsensusConfig {
             fail!(
                 BlockError::InvalidConstructorTag {
                     t: tag as u32,
-                    s: "ConsensusConfig".to_string()
+                    s: std::any::type_name::<Self>().to_string()
                 }
             )
         }
@@ -1739,6 +1750,60 @@ impl IntoIterator for &FundamentalSmcAddresses {
 }
 
 ///
+/// ConfigParam 30;
+/// 
+
+const DELECTOR_PARAMS_TAG: u8 = 0x1;
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct DelectorParams {
+    pub delections_step: u32,
+    pub validator_init_code_hash: UInt256,
+    pub staker_init_code_hash: UInt256,
+}
+
+impl DelectorParams {
+    pub const fn new() -> Self {
+        Self {
+            delections_step: 0,
+            validator_init_code_hash: UInt256::new(),
+            staker_init_code_hash: UInt256::new(),
+        }
+    }
+}
+
+impl Deserializable for DelectorParams {
+    fn construct_from(slice: &mut SliceData) -> Result<Self> {
+        let tag = slice.get_next_byte()?;
+        if tag != DELECTOR_PARAMS_TAG {
+            fail!(
+                BlockError::InvalidConstructorTag {
+                    t: tag as u32,
+                    s: std::any::type_name::<Self>().to_string()
+                }
+            )
+        }
+        let delections_step = Deserializable::construct_from(slice)?;
+        let validator_init_code_hash = Deserializable::construct_from(slice)?;
+        let staker_init_code_hash = Deserializable::construct_from(slice)?;
+        Ok(Self {
+            delections_step,
+            validator_init_code_hash,
+            staker_init_code_hash,
+        })
+    }
+}
+
+impl Serializable for DelectorParams {
+    fn write_to(&self, cell: &mut BuilderData) -> Result<()> {
+        DELECTOR_PARAMS_TAG.write_to(cell)?; // tag
+        self.delections_step.write_to(cell)?;
+        self.validator_init_code_hash.write_to(cell)?;
+        self.staker_init_code_hash.write_to(cell)?;
+        Ok(())
+    }
+}
+
+///
 /// ConfigParam 31;
 ///
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -1747,8 +1812,10 @@ pub struct ConfigParam31 {
 }
 
 impl ConfigParam31 {
-    pub fn new() -> Self {
-        ConfigParam31::default()
+    pub const fn new() -> Self {
+        Self {
+            fundamental_smc_addr: FundamentalSmcAddresses::new()
+        }
     }
 
     pub fn add_address(&mut self, address: UInt256) {
@@ -2237,7 +2304,7 @@ impl Deserializable for WorkchainDescr {
             fail!(
                 BlockError::InvalidConstructorTag {
                     t: tag as u32,
-                    s: "WorkchainDescr".to_string()
+                    s: std::any::type_name::<Self>().to_string()
                 }
             )
         }
@@ -2359,7 +2426,7 @@ impl Deserializable for ConfigProposalSetup {
         if tag != CONFIG_PROPOSAL_SETUP_TAG {
             fail!(BlockError::InvalidConstructorTag {
                 t: tag as u32,
-                s: "ConfigProposalSetup".into()
+                s: std::any::type_name::<Self>().to_string()
             })
         }
         self.min_tot_rounds.read_from(slice)?;
@@ -2439,7 +2506,7 @@ impl Deserializable for ConfigVotingSetup {
         if tag != CONFIG_VOTING_SETUP_TAG {
             fail!(BlockError::InvalidConstructorTag {
                 t: tag as u32,
-                s: "ConfigVotingSetup".into()
+                s: std::any::type_name::<Self>().to_string()
             })
         }
         self.normal_params.read_from_reference(slice)?;
@@ -2452,8 +2519,8 @@ impl Deserializable for ConfigVotingSetup {
 impl Serializable for ConfigVotingSetup {
     fn write_to(&self, cell: &mut BuilderData) -> Result<()> {
         cell.append_u8(CONFIG_VOTING_SETUP_TAG)?;
-        cell.append_reference_cell(self.normal_params.serialize()?);
-        cell.append_reference_cell(self.critical_params.serialize()?);
+        cell.append_reference_cell(self.normal_params.cell());
+        cell.append_reference_cell(self.critical_params.cell());
         Ok(())
     }
 }
@@ -2612,7 +2679,7 @@ impl Deserializable for ValidatorTempKey {
             fail!(
                 BlockError::InvalidConstructorTag {
                     t: tag as u32,
-                    s: "ValidatorTempKey".to_string()
+                    s: std::any::type_name::<Self>().to_string()
                 }
             )
         }
@@ -2672,7 +2739,7 @@ impl Deserializable for ValidatorSignedTempKey {
             fail!(
                 BlockError::InvalidConstructorTag {
                     t: tag as u32,
-                    s: "ValidatorSignedTempKey".to_string()
+                    s: std::any::type_name::<Self>().to_string()
                 }
             )
         }
@@ -2822,7 +2889,7 @@ impl Deserializable for SlashingConfig {
                 fail!(
                     BlockError::InvalidConstructorTag {
                         t: tag as u32,
-                        s: "SlashingConfig".to_string()
+                        s: std::any::type_name::<Self>().to_string()
                     }
                 )
             }
@@ -2969,7 +3036,7 @@ impl Deserializable for ParamLimits {
             fail!(
                 BlockError::InvalidConstructorTag {
                     t: tag as u32,
-                    s: "ParamLimits".to_string()
+                    s: std::any::type_name::<Self>().to_string()
                 }
             )
         }
@@ -3043,7 +3110,7 @@ impl Deserializable for BlockLimits {
             fail!(
                 BlockError::InvalidConstructorTag {
                     t: tag as u32,
-                    s: "BlockLimits".to_string()
+                    s: std::any::type_name::<Self>().to_string()
                 }
             )
         }
