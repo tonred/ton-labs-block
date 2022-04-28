@@ -175,7 +175,10 @@ impl SignedBlock {
 		cell.append_reference_cell(self.signatures.serialize()?);
 
 		// Transfom tree into bag
-		let bag = BagOfCells::with_roots_and_absent(vec![&cell.into_cell()?], vec![&block_absent_cell.into_cell()?]);
+		let bag = BagOfCells::with_roots_and_absent(
+			&[cell.into_cell()?],
+			&[block_absent_cell.into_cell()?]
+		);
 
 		// Write signed block's bytes and then unsigned block's bytes
 		bag.write_to(dest, true)?;
