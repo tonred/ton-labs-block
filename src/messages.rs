@@ -1299,6 +1299,13 @@ impl Message {
         }
     }
 
+    pub fn bounced(&self) -> bool {
+        match &self.header {
+            CommonMsgInfo::IntMsgInfo(header) => header.bounced,
+            _ => false,
+        }
+    }
+
     ///
     /// Get value transmitted by the message
     ///
