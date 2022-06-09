@@ -12,24 +12,23 @@
 */
 
 use crate::{
-    define_HashmapE, define_HashmapAugE,
     bintree::{BinTree, BinTreeType},
-    blocks::{BlockIdExt, ExtBlkRef, Block},
+    blocks::{Block, BlockIdExt, ExtBlkRef},
     config_params::ConfigParams,
+    define_HashmapAugE, define_HashmapE,
     error::BlockError,
     hashmapaug::{Augmentable, HashmapAugType, TraverseNextStep},
     inbound_messages::InMsg,
     shard::{AccountIdPrefixFull, ShardIdent, SHARD_FULL},
     signature::CryptoSignaturePair,
-    types::{CurrencyCollection, InRefValue, ChildCell},
+    types::{ChildCell, CurrencyCollection, InRefValue},
     validators::ValidatorInfo,
-    Serializable, Deserializable, MaybeSerialize, MaybeDeserialize,
+    CopyleftRewards, Deserializable, MaybeDeserialize, MaybeSerialize, Serializable, U15,
 };
 use std::{collections::HashMap, fmt};
 use ton_types::{
-    error, fail, Result,
-    AccountId, UInt256,
-    Cell, IBitstring, SliceData, BuilderData, HashmapE, HashmapType, hm_label,
+    error, fail, hm_label, AccountId, BuilderData, Cell, HashmapE, HashmapType, IBitstring, Result,
+    SliceData, UInt256,
 };
 
 
@@ -337,10 +336,11 @@ impl McShardRecord {
                     next_catchain_seqno: info.gen_catchain_seqno(),
                     next_validator_shard: info.shard().shard_prefix_with_tag(),
                     min_ref_mc_seqno: info.min_ref_mc_seqno(),
-                    gen_utime: info.gen_utime().0,
+                    gen_utime: info.gen_utime().as_u32(),
                     split_merge_at: FutureSplitMerge::None, // is not used in McShardRecord
                     fees_collected: value_flow.fees_collected,
                     funds_created: value_flow.created,
+                    copyleft_rewards: value_flow.copyleft_rewards,
                 },
                 block_id,
             }
@@ -368,7 +368,8 @@ impl McShardRecord {
             && self.descr.want_merge == other.descr.want_merge
             && (!compare_fees
                 || (self.descr.fees_collected == other.descr.fees_collected
-                    && self.descr.funds_created == other.descr.funds_created))
+                    && self.descr.funds_created == other.descr.funds_created
+                    && self.descr.copyleft_rewards == other.descr.copyleft_rewards))
     }
 }
 
@@ -388,6 +389,8 @@ impl ShardFees {
     }
 }
 
+define_HashmapE!{CopyleftMessages, 15, InRefValue<InMsg>}
+
 /*
 masterchain_block_extra#cca5
   key_block:(## 1)
@@ -406,6 +409,7 @@ pub struct McBlockExtra {
     fees: ShardFees,
     prev_blk_signatures: CryptoSignatures,
     recover_create_msg: Option<ChildCell<InMsg>>,
+    copyleft_msgs: CopyleftMessages,
     mint_msg: Option<ChildCell<InMsg>>,
     config: Option<ConfigParams>
 }
@@ -467,7 +471,7 @@ impl McBlockExtra {
     }
 
     pub fn read_mint_msg(&self) -> Result<Option<InMsg>> {
-        self.mint_msg.as_ref().map(|mr| mr.read_struct()).transpose()
+        self.mint_msg.as_ref().map(ChildCell::read_struct).transpose()
     }
     pub fn write_mint_msg(&mut self, value: Option<&InMsg>) -> Result<()> {
         self.mint_msg = value.map(ChildCell::with_struct).transpose()?;
@@ -476,18 +480,33 @@ impl McBlockExtra {
     pub fn mint_msg_cell(&self) -> Option<Cell> {
         self.mint_msg.as_ref().map(|mr| mr.cell())
     }
+
+    pub fn read_copyleft_msgs(&self) -> Result<Vec<InMsg>> {
+        let mut result = Vec::<InMsg>::default();
+        for i in 0..self.copyleft_msgs.len()? {
+            result.push(self.copyleft_msgs.get(&U15(i as i16))?.ok_or_else(|| error!("Cant find index {} in map", i))?.inner());
+        }
+        Ok(result)
+    }
+    pub fn write_copyleft_msgs(&mut self, value: &[InMsg]) -> Result<()> {
+        for (i, rec) in value.iter().enumerate() {
+            self.copyleft_msgs.setref(&U15(i as i16), &rec.serialize()?)?;
+        }
+        Ok(())
+    }
 }
 
 const MC_BLOCK_EXTRA_TAG : u16 = 0xCCA5;
+const MC_BLOCK_EXTRA_TAG_2 : u16 = 0xdc75;
 
 impl Deserializable for McBlockExtra {
     fn read_from(&mut self, cell: &mut SliceData) -> Result<()> {
         let tag = cell.get_next_u16()?;
-        if tag != MC_BLOCK_EXTRA_TAG {
+        if tag != MC_BLOCK_EXTRA_TAG && tag != MC_BLOCK_EXTRA_TAG_2 {
             fail!(
                 BlockError::InvalidConstructorTag {
                     t: tag.into(),
-                    s: "McBlockExtra".to_string()
+                    s: std::any::type_name::<Self>().to_string()
                 }
             )
         }
@@ -497,18 +516,12 @@ impl Deserializable for McBlockExtra {
 
         let cell1 = &mut cell.checked_drain_reference()?.into();
         self.prev_blk_signatures.read_from(cell1)?;
+        self.recover_create_msg = ChildCell::construct_maybe_from_reference(cell1)?;
+        self.mint_msg = ChildCell::construct_maybe_from_reference(cell1)?;
 
-        self.recover_create_msg = if cell1.get_next_bit()? {
-            Some(ChildCell::construct_from_reference(cell1)?)
-        } else {
-            None
-        };
-
-        self.mint_msg = if cell1.get_next_bit()? {
-            Some(ChildCell::construct_from_reference(cell1)?)
-        } else {
-            None
-        };
+        if tag == MC_BLOCK_EXTRA_TAG_2 {
+            self.copyleft_msgs.read_from(cell1)?;
+        }
 
         self.config = if key_block {
             Some(ConfigParams::construct_from(cell)?)
@@ -522,25 +535,22 @@ impl Deserializable for McBlockExtra {
 
 impl Serializable for McBlockExtra {
     fn write_to(&self, cell: &mut BuilderData) -> Result<()> {
-        cell.append_u16(MC_BLOCK_EXTRA_TAG)?;
+        let tag = if self.copyleft_msgs.is_empty() {
+            MC_BLOCK_EXTRA_TAG
+        } else {
+            MC_BLOCK_EXTRA_TAG_2
+        };
+        cell.append_u16(tag)?;
         self.config.is_some().write_to(cell)?;
         self.shards.write_to(cell)?;
         self.fees.write_to(cell)?;
 
-        let mut cell1 = BuilderData::new();
-        self.prev_blk_signatures.write_to(&mut cell1)?;
-        if let Some(msg) = self.recover_create_msg.as_ref() {
-            cell1.append_bit_one()?;
-            cell1.append_reference_cell(msg.cell());
-        } else {
-            cell1.append_bit_zero()?;
-        }
+        let mut cell1 = self.prev_blk_signatures.write_to_new_cell()?;
+        ChildCell::write_maybe_to(&mut cell1, self.recover_create_msg.as_ref())?;
+        ChildCell::write_maybe_to(&mut cell1, self.mint_msg.as_ref())?;
 
-        if let Some(msg) = self.mint_msg.as_ref() {
-            cell1.append_bit_one()?;
-            cell1.append_reference_cell(msg.cell());
-        } else {
-            cell1.append_bit_zero()?;
+        if !self.copyleft_msgs.is_empty() {
+            self.copyleft_msgs.write_to(&mut cell1)?;
         }
 
         cell.append_reference_cell(cell1.into_cell()?);
@@ -560,6 +570,15 @@ pub struct KeyMaxLt {
     pub max_end_lt: u64
 }
 
+impl KeyMaxLt {
+    pub const fn new() -> KeyMaxLt {
+        KeyMaxLt {
+            key: false,
+            max_end_lt: 0
+        }
+    }
+}
+
 impl Deserializable for KeyMaxLt {
     fn read_from(&mut self, slice: &mut SliceData) -> Result<()> {
         self.key.read_from(slice)?;
@@ -577,14 +596,14 @@ impl Serializable for KeyMaxLt {
 }
 
 impl Augmentable for KeyMaxLt {
-    fn calc(&mut self, other: &Self) -> Result<()> {
+    fn calc(&mut self, other: &Self) -> Result<bool> {
         if other.key {
             self.key = true
         }
         if self.max_end_lt < other.max_end_lt {
             self.max_end_lt = other.max_end_lt
         }
-        Ok(())
+        Ok(true)
     }
 }
 
@@ -768,6 +787,12 @@ pub struct ShardFeeCreated {
 }
 
 impl ShardFeeCreated {
+    pub const fn new() -> ShardFeeCreated {
+        ShardFeeCreated {
+            fees: CurrencyCollection::new(),
+            create: CurrencyCollection::new(),
+        }
+    }
     pub fn with_fee(fees: CurrencyCollection) -> Self {
         Self {
             fees,
@@ -777,9 +802,10 @@ impl ShardFeeCreated {
 }
 
 impl Augmentable for ShardFeeCreated {
-    fn calc(&mut self, other: &Self) -> Result<()> {
-        self.fees.calc(&other.fees)?;
-        self.create.calc(&other.create)
+    fn calc(&mut self, other: &Self) -> Result<bool> {
+        let mut result = self.fees.calc(&other.fees)?;
+        result |= self.create.calc(&other.create)?;
+        Ok(result)
     }
 }
 
@@ -950,7 +976,7 @@ impl Deserializable for CreatorStats {
             fail!(
                 BlockError::InvalidConstructorTag {
                     t: tag,
-                    s: "CreatorStats".to_string()
+                    s: std::any::type_name::<Self>().to_string()
                 }
             )
         }
@@ -996,7 +1022,7 @@ impl Deserializable for BlockCreateStats {
             fail!(
                 BlockError::InvalidConstructorTag {
                     t: tag,
-                    s: "BlockCreateStats".to_string()
+                    s: std::any::type_name::<Self>().to_string()
                 }
             )
         }
@@ -1038,9 +1064,24 @@ pub struct McStateExtra {
     pub last_key_block: Option<ExtBlkRef>,
     pub block_create_stats: Option<BlockCreateStats>,
     pub global_balance: CurrencyCollection,
+    pub state_copyleft_rewards: CopyleftRewards,
 }
 
+const MC_STATE_EXTRA_TAG: u16 = 0xcc26;
+
 impl McStateExtra {
+    // pub const fn new() -> McStateExtra {
+    //     McStateExtra {
+    //         shards: ShardHashes::new(),
+    //         config: ConfigParams::new(),
+    //         validator_info: ValidatorInfo::new(),
+    //         prev_blocks: OldMcBlocksInfo::new(),
+    //         after_key_block: false,
+    //         last_key_block: None,
+    //         block_create_stats: None,
+    //         global_balance: CurrencyCollection::new(),
+    //     }
+    // }
     pub fn tag() -> u16 {
         0xcc26
     }
@@ -1093,11 +1134,11 @@ impl McStateExtra {
 impl Deserializable for McStateExtra {
     fn read_from(&mut self, cell: &mut SliceData) -> Result<()> {
         let tag = cell.get_next_u16()?;
-        if tag != Self::tag() {
+        if tag != MC_STATE_EXTRA_TAG {
             fail!(
                 BlockError::InvalidConstructorTag {
                     t: tag.into(),
-                    s: "McStateExtra".to_string()
+                    s: std::any::type_name::<Self>().to_string()
                 }
             )
         }
@@ -1107,10 +1148,10 @@ impl Deserializable for McStateExtra {
         let cell1 = &mut cell.checked_drain_reference()?.into();
         let mut flags = 0u16;
         flags.read_from(cell1)?; // 16 + 0
-        if flags > 1 {
+        if flags > 3 {
             fail!(
                 BlockError::InvalidData(
-                    format!("Invalid flags value ({}). Must be <= 1.", flags)
+                    format!("Invalid flags value ({}). Must be <= 3.", flags)
                 )
             )
         }
@@ -1123,6 +1164,9 @@ impl Deserializable for McStateExtra {
         } else {
             Some(BlockCreateStats::construct_from(cell1)?) // 1 + 1
         };
+        if flags & 2 != 0 {
+            self.state_copyleft_rewards.read_from(cell1)?; // 1 + 1
+        }
         self.global_balance.read_from(cell)?;
         Ok(())
     }
@@ -1130,16 +1174,18 @@ impl Deserializable for McStateExtra {
 
 impl Serializable for McStateExtra {
     fn write_to(&self, cell: &mut BuilderData) -> Result<()> {
-        cell.append_u16(Self::tag())?;
+        cell.append_u16(MC_STATE_EXTRA_TAG)?;
         self.shards.write_to(cell)?;
         self.config.write_to(cell)?;
 
         let mut cell1 = BuilderData::new();
-        let flags = if self.block_create_stats.is_some() {
-            1u16
-        } else {
-            0u16
-        };
+        let mut flags = 0;
+        if self.block_create_stats.is_some() {
+            flags += 1u16;
+        }
+        if !self.state_copyleft_rewards.is_empty() {
+            flags += 2u16;
+        }
         flags.write_to(&mut cell1)?;
         self.validator_info.write_to(&mut cell1)?;
         self.prev_blocks.write_to(&mut cell1)?;
@@ -1147,6 +1193,9 @@ impl Serializable for McStateExtra {
         self.last_key_block.write_maybe_to(&mut cell1)?;
         if let Some(ref block_create_stats) = self.block_create_stats {
             block_create_stats.write_to(&mut cell1)?;
+        }
+        if !self.state_copyleft_rewards.is_empty() {
+            self.state_copyleft_rewards.write_to(&mut cell1)?;
         }
         cell.append_reference_cell(cell1.into_cell()?);
         self.global_balance.write_to(cell)?;
@@ -1265,6 +1314,7 @@ pub struct ShardDescr {
     pub split_merge_at: FutureSplitMerge,
     pub fees_collected: CurrencyCollection,
     pub funds_created: CurrencyCollection,
+    pub copyleft_rewards: CopyleftRewards,
 }
 
 impl ShardDescr {
@@ -1292,6 +1342,7 @@ impl ShardDescr {
             split_merge_at,
             fees_collected: CurrencyCollection::default(),
             funds_created: CurrencyCollection::default(),
+            copyleft_rewards: CopyleftRewards::default(),
         }
     }
     pub fn fsm_equal(&self, other: &Self) -> bool {
@@ -1331,16 +1382,17 @@ impl ShardDescr {
 
 const SHARD_IDENT_TAG_A: u8 = 0xa; // 4 bit
 const SHARD_IDENT_TAG_B: u8 = 0xb; // 4 bit
+const SHARD_IDENT_TAG_C: u8 = 0xc; // 4 bit
 const SHARD_IDENT_TAG_LEN: usize = 4;
 
 impl Deserializable for ShardDescr {
     fn read_from(&mut self, slice: &mut SliceData) -> Result<()> {
         let tag = slice.get_next_int(SHARD_IDENT_TAG_LEN)? as u8;
-        if tag != SHARD_IDENT_TAG_A && tag != SHARD_IDENT_TAG_B {
+        if tag != SHARD_IDENT_TAG_A && tag != SHARD_IDENT_TAG_B && tag != SHARD_IDENT_TAG_C {
             fail!(
                 BlockError::InvalidConstructorTag {
                     t: tag as u32,
-                    s: "ShardDescr".to_string()
+                    s: std::any::type_name::<Self>().to_string()
                 }
             )
         }
@@ -1371,10 +1423,15 @@ impl Deserializable for ShardDescr {
         if tag == SHARD_IDENT_TAG_B {
             self.fees_collected.read_from(slice)?;
             self.funds_created.read_from(slice)?;
-        } else {
+        } else if tag == SHARD_IDENT_TAG_A {
             let mut slice1 = slice.checked_drain_reference()?.into();
             self.fees_collected.read_from(&mut slice1)?;
             self.funds_created.read_from(&mut slice1)?;
+        } else if tag == SHARD_IDENT_TAG_C {
+            let mut slice1 = slice.checked_drain_reference()?.into();
+            self.fees_collected.read_from(&mut slice1)?;
+            self.funds_created.read_from(&mut slice1)?;
+            self.copyleft_rewards.read_from(&mut slice1)?;
         }
         Ok(())
     }
@@ -1382,7 +1439,12 @@ impl Deserializable for ShardDescr {
 
 impl Serializable for ShardDescr {
     fn write_to(&self, cell: &mut BuilderData) -> Result<()> {
-        cell.append_bits(SHARD_IDENT_TAG_A as usize, SHARD_IDENT_TAG_LEN)?;
+        let tag = if self.copyleft_rewards.is_empty() {
+            SHARD_IDENT_TAG_A
+        } else {
+            SHARD_IDENT_TAG_C
+        };
+        cell.append_bits(tag as usize, SHARD_IDENT_TAG_LEN)?;
 
         self.seq_no.write_to(cell)?;
         self.reg_mc_seqno.write_to(cell)?;
@@ -1422,6 +1484,9 @@ impl Serializable for ShardDescr {
         let mut child = BuilderData::new();
         self.fees_collected.write_to(&mut child)?;
         self.funds_created.write_to(&mut child)?;
+        if !self.copyleft_rewards.is_empty() {
+            self.copyleft_rewards.write_to(&mut child)?;
+        }
         cell.append_reference_cell(child.into_cell()?);
 
         Ok(())
@@ -1431,7 +1496,7 @@ impl Serializable for ShardDescr {
 /*
 master_info$_ master:ExtBlkRef = BlkMasterInfo;
 */
-#[derive(Clone, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Default, Debug, PartialEq, Eq)]
 pub struct BlkMasterInfo {
     pub master: ExtBlkRef
 }
@@ -1492,7 +1557,7 @@ impl Deserializable for LibDescr {
             fail!(
                 BlockError::InvalidConstructorTag {
                     t: tag as u32,
-                    s: "LibDescr".to_string()
+                    s: std::any::type_name::<Self>().to_string()
                 }
             )
         }

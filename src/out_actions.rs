@@ -12,21 +12,18 @@
 */
 
 use crate::{
-    error::BlockError,
-    messages::Message,
-    types::{CurrencyCollection},
-    Serializable, Deserializable
+    error::BlockError, messages::Message, types::CurrencyCollection, Deserializable, Serializable,
 };
 use std::collections::LinkedList;
 use ton_types::{
-    fail, Result,
-    UInt256, BuilderData, Cell, IBitstring, SliceData,
+    fail, AccountId, BuilderData, Cell, IBitstring, Result, SliceData, UInt256,
 };
 
-pub const ACTION_SEND_MSG: u32 = 0x0ec3c86d;
-pub const ACTION_SET_CODE: u32 = 0xad4de08e;
-pub const ACTION_RESERVE:  u32 = 0x36e6b809;
+pub const ACTION_SEND_MSG:   u32 = 0x0ec3c86d;
+pub const ACTION_SET_CODE:   u32 = 0xad4de08e;
+pub const ACTION_RESERVE:    u32 = 0x36e6b809;
 pub const ACTION_CHANGE_LIB: u32 = 0x26fa1dd4;
+pub const ACTION_COPYLEFT:   u32 = 0x24486f7a;
 
 
 /*
@@ -75,8 +72,7 @@ impl Deserializable for OutActions {
         let mut cell = cell.clone();
         while cell.remaining_references() != 0 {
             let prev_cell = cell.checked_drain_reference()?;
-            let mut action = OutAction::default();
-            action.read_from(&mut cell)?;
+            let action = OutAction::construct_from(&mut cell)?;
             self.push_front(action);
             cell = prev_cell.into();
         }
@@ -93,6 +89,7 @@ impl Deserializable for OutActions {
 /// Enum OutAction
 ///
 #[derive(Clone, Debug, PartialEq)]
+#[allow(clippy::large_enum_variant)]
 pub enum OutAction {
 
     ///
@@ -129,6 +126,14 @@ pub enum OutAction {
         mode: u8,
         code: Option<Cell>,
         hash: Option<UInt256>,
+    },
+
+    ///
+    /// Action for revert reward for code to code creater.
+    ///
+    CopyLeft {
+        license: u8,
+        address: AccountId,
     },
 
     None
@@ -214,6 +219,12 @@ impl OutAction {
         OutAction::ChangeLibrary { mode, code, hash }
     }
 
+    ///
+    /// Create new instance OutAction::Copyleft
+    ///
+    pub fn new_copyleft(license: u8, address: AccountId) -> Self {
+        OutAction::CopyLeft { license, address }
+    }
 }
 
 impl Serializable for OutAction {
@@ -242,7 +253,12 @@ impl Serializable for OutAction {
                 if let Some(value) = code {
                     cell.append_reference_cell(value.clone());
                 }
-            },
+            }
+            OutAction::CopyLeft{ref license, ref address} => {
+                ACTION_COPYLEFT.write_to(cell)?; // tag
+                license.write_to(cell)?;
+                address.write_to(cell)?;
+            }
             OutAction::None => fail!(
                 BlockError::InvalidOperation("self is None".to_string())
             )
@@ -288,6 +304,12 @@ impl Deserializable for OutAction {
                         *self = OutAction::new_change_library(mode, Some(code), None);
                     }
                 }
+            }
+            ACTION_COPYLEFT => {
+                let license = cell.get_next_byte()?;
+                let mut address = AccountId::default();
+                address.read_from(cell)?;
+                *self = OutAction::new_copyleft(license, address);
             }
             tag => fail!(
                 BlockError::InvalidConstructorTag {

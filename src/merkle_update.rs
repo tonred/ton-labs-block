@@ -312,7 +312,7 @@ impl MerkleUpdate {
         let mut child_mask = LevelMask::with_mask(0);
         for update_child in update_cell.clone_references().iter() {
             let new_child = match update_child.cell_type() {
-                CellType::Ordinary | CellType::MerkleProof | CellType::MerkleUpdate => {
+                CellType::Ordinary | CellType::MerkleProof | CellType::MerkleUpdate | CellType::LibraryReference => {
                     let new_child_hash = update_child.hash(child_merkle_depth as usize);
                     if let Some(c) = new_cells.get(&new_child_hash) {
                         c.clone()
@@ -334,10 +334,7 @@ impl MerkleUpdate {
                         update_child.clone()
                     }
                 },
-                CellType::LibraryReference => {
-                    unimplemented!() // TODO
-                },
-                _ => panic!("Unknown cell type!")
+                _ => fail!("Unknown cell type while applying merkle update!")
             };
             child_mask |= new_child.level_mask();
             new_cell.append_reference_cell(new_child);

@@ -12,23 +12,21 @@
 */
 
 use crate::{
-    define_HashmapE, define_HashmapAugE,
     accounts::{Account, AccountStatus, StorageUsedShort},
     blocks::Block,
+    define_HashmapAugE, define_HashmapE,
     error::BlockError,
     hashmapaug::{Augmentable, Augmentation, HashmapAugType},
     merkle_proof::MerkleProof,
     messages::Message,
     shard::ShardStateUnsplit,
     types::{AddSub, ChildCell, CurrencyCollection, Grams, InRefValue, VarUInteger3, VarUInteger7},
-    MaybeSerialize, MaybeDeserialize, Serializable, Deserializable,
+    Deserializable, MaybeDeserialize, MaybeSerialize, Serializable,
 };
 use std::{fmt, sync::Arc};
 use ton_types::{
-    error, fail, Result,
-    AccountId, UInt256, UsageTree,
-    BuilderData, Cell, IBitstring, SliceData,
-    HashmapE, HashmapType, hm_label,
+    error, fail, hm_label, AccountId, BuilderData, Cell, HashmapE, HashmapType, IBitstring, Result,
+    SliceData, UInt256, UsageTree,
 };
 
 
@@ -570,6 +568,7 @@ pub struct TrActionPhase {
     pub valid: bool,
     pub no_funds: bool,
     pub status_change: AccStatusChange,
+    // TODO: remove two next Options and store if it is not zero
     pub total_fwd_fees: Option<Grams>,
     pub total_action_fees: Option<Grams>,
     pub result_code: i32,
@@ -580,6 +579,25 @@ pub struct TrActionPhase {
     pub msgs_created: i16,
     pub action_list_hash: UInt256,
     pub tot_msg_size: StorageUsedShort,
+}
+
+impl TrActionPhase {
+    pub fn add_fwd_fees(&mut self, fees: Grams) {
+        if !fees.is_zero() {
+            self.total_fwd_fees.get_or_insert(Grams::zero()).add_checked(fees.as_u128());
+        }
+    }
+    pub fn total_fwd_fees(&self) -> Grams {
+        self.total_fwd_fees.unwrap_or_default()
+    }
+    pub fn add_action_fees(&mut self, fees: Grams) {
+        if !fees.is_zero() {
+            self.total_action_fees.get_or_insert(Grams::zero()).add_checked(fees.as_u128());
+        }
+    }
+    pub fn total_action_fees(&self) -> Grams {
+        self.total_action_fees.unwrap_or_default()
+    }
 }
 
 impl Serializable for TrActionPhase {
@@ -987,6 +1005,12 @@ impl Deserializable for TransactionDescrMergeInstall {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct CopyleftReward {
+    pub reward: Grams,
+    pub address: AccountId,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TransactionDescr {
     Ordinary(TransactionDescrOrdinary),
@@ -1056,8 +1080,8 @@ impl TransactionDescr {
             TransactionDescr::Ordinary(ref mut desc) => {
                 if let Some(ref mut bounce) = desc.bounce {
                     match bounce {
-                        TrBouncePhase::Nofunds(ref mut no_funds) => { no_funds.msg_size.append(cell);},
-                        TrBouncePhase::Ok(ref mut ok) => { ok.msg_size.append(cell);},
+                        TrBouncePhase::Nofunds(ref mut no_funds) => { no_funds.msg_size.append(cell); },
+                        TrBouncePhase::Ok(ref mut ok) => { ok.msg_size.append(cell); },
                         _ => (),
                     };
                 }
@@ -1293,6 +1317,7 @@ pub struct Transaction {
     pub total_fees: CurrencyCollection,
     pub state_update: ChildCell<HashUpdate>,
     pub description: ChildCell<TransactionDescr>,
+    pub copyleft_reward: Option<CopyleftReward>, // don't serialised
 }
 
 impl Transaction {
@@ -1313,6 +1338,7 @@ impl Transaction {
             total_fees: CurrencyCollection::default(),
             state_update: ChildCell::default(),
             description: ChildCell::default(),
+            copyleft_reward: None,
         }
     }
 
@@ -1335,6 +1361,7 @@ impl Transaction {
             total_fees: CurrencyCollection::default(),
             state_update: ChildCell::default(),
             description: ChildCell::default(),
+            copyleft_reward: None,
         })
     }
 
@@ -1377,7 +1404,7 @@ impl Transaction {
     }
 
     /// add fee
-    pub fn add_fee_grams(&mut self, fee: &Grams) -> Result<()> {
+    pub fn add_fee_grams(&mut self, fee: &Grams) -> Result<bool> {
         self.total_fees.grams.add(fee)
     }
 
@@ -1498,6 +1525,14 @@ impl Transaction {
         self.now = now;
     }
 
+    pub fn copyleft_reward(&self) -> &Option<CopyleftReward> {
+        &self.copyleft_reward
+    }
+
+    pub fn set_copyleft_reward(&mut self, reward: Option<CopyleftReward>) {
+        self.copyleft_reward = reward;
+    }
+
     pub fn prepare_proof(&self, block_root: &Cell) -> Result<Cell> {
         // proof for transaction and block info in block
 
@@ -1543,7 +1578,7 @@ impl Transaction {
     pub fn gas_used(&self) -> Option<u64> {
         if let Ok(description) = self.read_description() {
             if let Some(TrComputePhase::Vm(compute_ph)) = description.compute_phase_ref() {
-                return Some(compute_ph.gas_used.0 as u64)
+                return Some(compute_ph.gas_used.as_u64())
             }
         }
         None
@@ -1586,7 +1621,8 @@ impl Default for Transaction {
             out_msgs: OutMessages::default(),
             total_fees: CurrencyCollection::default(),
             state_update: ChildCell::default(),
-            description: ChildCell::default()
+            description: ChildCell::default(),
+            copyleft_reward: None,
         }
     }
 }

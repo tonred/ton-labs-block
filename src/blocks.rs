@@ -11,30 +11,31 @@
 * limitations under the License.
 */
 
+use crate::types::AddSub;
 use crate::{
+    config_params::{CatchainConfig, GlobalVersion},
     define_HashmapE,
-    config_params::{GlobalVersion, CatchainConfig},
     error::BlockError,
     inbound_messages::InMsgDescr,
     master::{BlkMasterInfo, McBlockExtra},
     merkle_update::MerkleUpdate,
     outbound_messages::OutMsgDescr,
-    signature::BlockSignatures,
     shard::ShardIdent,
+    signature::BlockSignatures,
     transactions::ShardAccountBlocks,
-    types::{ChildCell, CurrencyCollection, InRefValue, UnixTime32},
-    Serializable, Deserializable, MaybeSerialize, MaybeDeserialize,
+    types::{ChildCell, CurrencyCollection, Grams, InRefValue, UnixTime32},
     validators::ValidatorSet,
+    Deserializable, MaybeDeserialize, MaybeSerialize, Serializable,
 };
 use std::{
     cmp::Ordering,
-    io::{Cursor, Write},
     fmt::{self, Display, Formatter},
-    str::FromStr
+    io::{Cursor, Write},
+    str::FromStr,
 };
 use ton_types::{
-    error, fail, Result,
-    ExceptionCode, UInt256, BuilderData, Cell, IBitstring, SliceData, HashmapE, HashmapType,
+    error, fail, AccountId, BuilderData, Cell, ExceptionCode, HashmapE, HashmapType, IBitstring,
+    Result, SliceData, UInt256,
 };
 
 
@@ -834,6 +835,60 @@ impl Serializable for BlockExtra {
     }
 }
 
+define_HashmapE!{CopyleftRewards, 256, Grams}
+
+impl CopyleftRewards {
+    pub fn add_copyleft_reward(&mut self, reward_address: &AccountId, reward: &Grams) -> Result<()> {
+        if let Some(mut value) = self.get(reward_address)? {
+            value.add(reward)?;
+            self.set(reward_address, &value)?;
+        } else {
+            self.set(reward_address, reward)?;
+        }
+        Ok(())
+    }
+
+    pub fn merge_rewards(&mut self, other: &Self) -> Result<()> {
+        // if map size is big, iterating will be long
+        other.iterate_with_keys(|key: AccountId, mut value| {
+            if let Some(new_value) = self.get(&key)? {
+                value.add(&new_value)?;
+            }
+            self.set(&key, &value)?;
+            Ok(true)
+        })?;
+        Ok(())
+    }
+
+    pub fn merge_rewards_with_threshold(&mut self, other: &Self, threshold: &Grams) -> Result<Vec<(AccountId, Grams)>> {
+        // if map size is big, iterating will be long
+        let mut send_rewards = vec!();
+        other.iterate_with_keys(|key: AccountId, mut value| {
+            if let Some(new_value) = self.get(&key)? {
+                value.add(&new_value)?;
+            }
+            if &value >= threshold {
+                self.remove(&key)?;
+                send_rewards.push((key, value));
+            } else {
+                self.set(&key, &value)?;
+            }
+            Ok(true)
+        })?;
+        Ok(send_rewards)
+    }
+
+    pub fn debug(&self) -> Result<String> {
+        let mut str = "".to_string();
+        self.iterate_with_keys(|key: AccountId, value| {
+            str = format!("{} key: {:?}, value: {}; ", str, key, value);
+            Ok(true)
+        })?;
+        str = format!("{}.", str);
+        Ok(str)
+    }
+}
+
 /// value_flow ^[ from_prev_blk:CurrencyCollection
 ///   to_next_blk:CurrencyCollection
 ///   imported:CurrencyCollection
@@ -861,6 +916,7 @@ pub struct ValueFlow {
     pub recovered: CurrencyCollection,     // serialized into another cell 2
     pub created: CurrencyCollection,       // serialized into another cell 2
     pub minted: CurrencyCollection,        // serialized into another cell 2
+    pub copyleft_rewards: CopyleftRewards,
 }
 
 impl fmt::Display for ValueFlow {
@@ -899,6 +955,7 @@ impl ValueFlow {
         self.recovered.other.iterate(|_value| Ok(true))?;
         self.created.other.iterate(|_value| Ok(true))?;
         self.minted.other.iterate(|_value| Ok(true))?;
+        self.copyleft_rewards.iterate(|_value| Ok(true))?;
         Ok(())
     }
 }
@@ -1023,10 +1080,16 @@ impl Serializable for BlockInfo {
 }
 
 const VALUE_FLOW_TAG: u32 = 0xb8e48dfb;
+const VALUE_FLOW_TAG_V2: u32 = 0xe0864f6d;
 
 impl Serializable for ValueFlow {
     fn write_to(&self, cell: &mut BuilderData) -> Result<()> {
-        cell.append_u32(VALUE_FLOW_TAG)?;
+        let tag = if self.copyleft_rewards.is_empty() {
+            VALUE_FLOW_TAG
+        } else {
+            VALUE_FLOW_TAG_V2
+        };
+        cell.append_u32(tag)?;
 
         let mut cell1 = BuilderData::new();
         self.from_prev_blk.write_to(&mut cell1)?;
@@ -1043,6 +1106,10 @@ impl Serializable for ValueFlow {
         self.minted.write_to(&mut cell2)?;
         cell.append_reference_cell(cell2.into_cell()?);
 
+        if !self.copyleft_rewards.is_empty() {
+            self.copyleft_rewards.write_to(cell)?;
+        }
+
         Ok(())
     }
 }
@@ -1050,7 +1117,7 @@ impl Serializable for ValueFlow {
 impl Deserializable for ValueFlow {
     fn read_from(&mut self, cell: &mut SliceData) -> Result<()> {
         let tag = cell.get_next_u32()?;
-        if tag != VALUE_FLOW_TAG {
+        if tag != VALUE_FLOW_TAG && tag != VALUE_FLOW_TAG_V2 {
             fail!(
                 BlockError::InvalidConstructorTag {
                     t: tag,
@@ -1070,6 +1137,11 @@ impl Deserializable for ValueFlow {
         self.recovered.read_from(cell2)?;
         self.created.read_from(cell2)?;
         self.minted.read_from(cell2)?;
+
+        if tag == VALUE_FLOW_TAG_V2 {
+            self.copyleft_rewards.read_from(cell)?;
+        }
+
         Ok(())
     }
 }

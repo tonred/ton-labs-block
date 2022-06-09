@@ -50,6 +50,9 @@ impl CryptoSignature {
         Ok(Self(ed25519::Signature::from_bytes(bytes)?))
     }
 
+    // #[deprecated]
+    // pub fn from_str(s: &str) -> Result<Self> { FromStr::from_str(s) }
+
     pub fn from_r_s(r: &[u8], s: &[u8]) -> Result<Self>
     {
         if r.len() != ed25519_dalek::SIGNATURE_LENGTH / 2 {
@@ -208,6 +211,9 @@ impl SigPubKey {
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
         Ok(SigPubKey(ed25519_dalek::PublicKey::from_bytes(bytes)?))
     }
+
+    // #[deprecated]
+    // pub fn from_str(s: &str) -> Result<Self> { FromStr::from_str(s) }
 
     pub fn key(&self) -> &ed25519_dalek::PublicKey {
         &self.0
