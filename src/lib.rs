@@ -152,12 +152,6 @@ pub trait Serializable {
         ton_types::serialize_toc(&cell)
     }
 
-    fn write_to_file(&self, file_name: impl AsRef<std::path::Path>) -> Result<()> {
-        let bytes = self.write_to_bytes()?;
-        std::fs::write(file_name.as_ref(), bytes)?;
-        Ok(())
-    }
-
     fn serialize(&self) -> Result<Cell> {
         self.write_to_new_cell()?.into_cell()
     }
@@ -185,11 +179,6 @@ pub trait Deserializable: Default {
     fn construct_from_bytes(mut bytes: &[u8]) -> Result<Self> {
         let cell = ton_types::deserialize_tree_of_cells(&mut bytes)?;
         Self::construct_from(&mut cell.into())
-    }
-    /// adapter for tests
-    fn construct_from_file(file_name: impl AsRef<std::path::Path>) -> Result<Self> {
-        let bytes = std::fs::read(file_name.as_ref())?;
-        Self::construct_from_bytes(&bytes)
     }
     /// adapter for tests
     fn construct_from_base64(string: &str) -> Result<Self> {
