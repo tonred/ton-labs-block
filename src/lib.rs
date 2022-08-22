@@ -157,6 +157,12 @@ pub trait Serializable {
     }
 }
 
+impl<T: Serializable> Serializable for &T {
+    fn write_to(&self, cell: &mut BuilderData) -> Result<()> {
+        <T as Serializable>::write_to(self, cell)
+    }
+}
+
 pub trait Deserializable: Default {
     fn construct_from(slice: &mut SliceData) -> Result<Self> {
         let mut x = Self::default();
