@@ -1824,7 +1824,7 @@ impl Default for MessageProcessingStatus {
 ///
 ///
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Default, PartialEq, Ord, PartialOrd, Eq, Hash)]
 pub struct AnycastInfo {
     pub depth: Number5,
     pub rewrite_pfx: SliceData,
@@ -1838,7 +1838,7 @@ impl Deserializable for AnycastInfo {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub struct MsgAddrExt {
     pub len: Number9,
     pub external_address: SliceData,
@@ -1875,7 +1875,7 @@ impl Deserializable for MsgAddressExt {
 }
 
 // TODO: default Default is not working for MsgAddrStd
-#[derive(Clone, Debug, /*Default,*/ PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, /*Default,*/ PartialEq, Ord, PartialOrd, Eq, Hash)]
 pub struct MsgAddrStd {
     pub anycast: Option<AnycastInfo>,
     pub workchain_id: i8,
@@ -1891,7 +1891,7 @@ impl Deserializable for MsgAddrStd {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub struct MsgAddrVar {
     pub anycast: Option<AnycastInfo>,
     pub addr_len: Number9,
@@ -1909,7 +1909,7 @@ impl Deserializable for MsgAddrVar {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub enum MsgAddressInt {
     AddrStd(MsgAddrStd),
     AddrVar(MsgAddrVar),
@@ -1940,7 +1940,7 @@ impl Deserializable for MsgAddressInt {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub enum MsgAddress {
     AddrNone,
     AddrExt(MsgAddrExt),
