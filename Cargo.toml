@@ -25,12 +25,12 @@ ton_types = { git = "https://github.com/broxus/ton-labs-types.git" }
 # External
 anyhow = "1"
 base64 = "0.13"
-crc = "2.1.0"
+crc = "3.0.0"
 ed25519 = "1.4.1"
 ed25519-dalek = { git = "https://github.com/broxus/ed25519-dalek.git" }
 hex = "^0.4.0"
 log = "0.4.8"
-num = "0.3"
+num = "0.4"
 num-traits = "0.2"
 rand = "0.8"
 rustc-hash = "1.1.0"
