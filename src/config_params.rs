@@ -55,6 +55,13 @@ impl ConfigParams {
         }
     }
 
+    pub const fn with_root(data: Cell) -> Self {
+        Self {
+            config_addr: UInt256::ZERO,
+            config_params: HashmapE::with_hashmap(32, Some(data))
+        }
+    }
+
     pub const fn with_address_and_root(config_addr: UInt256, data: Cell) -> Self {
         Self {
             config_addr,
@@ -71,10 +78,10 @@ impl ConfigParams {
 
     /// get config by index
     pub fn config(&self, index: u32) -> Result<Option<ConfigParamEnum>> {
-        let key = index.serialize().unwrap();
-        if let Some(slice) = self.config_params.get(key.into())? {
+        let key = SliceData::load_builder(index.write_to_new_cell()?)?;
+        if let Some(slice) = self.config_params.get(key)? {
             if let Some(cell) = slice.reference_opt(0) {
-                return Ok(Some(ConfigParamEnum::construct_from_slice_and_number(&mut cell.into(), index)?));
+                return Ok(Some(ConfigParamEnum::construct_from_slice_and_number(&mut SliceData::load_cell(cell)?, index)?));
             }
         }
         Ok(None)
@@ -82,8 +89,8 @@ impl ConfigParams {
 
     /// get config by index
     pub fn config_present(&self, index: u32) -> Result<bool> {
-        let key = index.serialize().unwrap();
-        if let Some(slice) = self.config_params.get(key.into())? {
+        let key = SliceData::load_builder(index.write_to_new_cell()?)?;
+        if let Some(slice) = self.config_params.get(key)? {
             if slice.remaining_references() != 0 {
                 return Ok(true)
             }
@@ -96,8 +103,8 @@ impl ConfigParams {
 
         let mut value = BuilderData::new();
         let index = config.write_to_cell(&mut value)?;
-        let key = index.serialize()?;
-        self.config_params.set_builder(key.into(), &value)?;
+        let key = SliceData::load_builder(index.write_to_new_cell()?)?;
+        self.config_params.set_builder(key, &value)?;
         Ok(())
     }
 
@@ -335,26 +342,38 @@ impl ConfigParams {
 #[repr(u64)]
 pub enum GlobalCapabilities {
     CapNone                   = 0,
-    CapIhrEnabled             = 0x000001,
-    CapCreateStatsEnabled     = 0x000002,
-    CapBounceMsgBody          = 0x000004,
-    CapReportVersion          = 0x000008,
-    CapSplitMergeTransactions = 0x000010,
-    CapShortDequeue           = 0x000020,
-    CapMbppEnabled            = 0x000040,
-    CapFastStorageStat        = 0x000080,
-    CapInitCodeHash           = 0x000100,
-    CapOffHypercube           = 0x000200,
-    CapMycode                 = 0x000400,
-    CapSetLibCode             = 0x000800,
-    CapFixTupleIndexBug       = 0x001000,
-    CapRemp                   = 0x002000,
-    CapDelections             = 0x004000,
-    CapFullBodyInBounced      = 0x010000,
-    CapStorageFeeToTvm        = 0x020000,
-    CapCopyleft               = 0x040000,
-    CapIndexAccounts          = 0x080000,
-    CapDiff                   = 0x100000,
+    CapIhrEnabled             = 0x0000_0001,
+    CapCreateStatsEnabled     = 0x0000_0002,
+    CapBounceMsgBody          = 0x0000_0004,
+    CapReportVersion          = 0x0000_0008,
+    CapSplitMergeTransactions = 0x0000_0010,
+    CapShortDequeue           = 0x0000_0020,
+    CapMbppEnabled            = 0x0000_0040,
+    CapFastStorageStat        = 0x0000_0080,
+    CapInitCodeHash           = 0x0000_0100,
+    CapOffHypercube           = 0x0000_0200,
+    CapMycode                 = 0x0000_0400,
+    CapSetLibCode             = 0x0000_0800,
+    CapFixTupleIndexBug       = 0x0000_1000,
+    CapRemp                   = 0x0000_2000,
+    CapDelections             = 0x0000_4000,
+    CapFullBodyInBounced      = 0x0001_0000,
+    CapStorageFeeToTvm        = 0x0002_0000,
+    CapCopyleft               = 0x0004_0000,
+    CapIndexAccounts          = 0x0008_0000,
+    #[cfg(feature = "gosh")]
+    CapDiff                   = 0x0010_0000,
+    CapsTvmBugfixes2022       = 0x0020_0000, // popsave, exception handler, loops
+    CapWorkchains             = 0x0040_0000,
+    CapStcontNewFormat        = 0x0080_0000, // support old format continuation serialization
+    CapFastStorageStatBugfix  = 0x0100_0000, // calc cell datasize using fast storage stat
+    CapResolveMerkleCell      = 0x0200_0000,
+    #[cfg(feature = "signature_with_id")]
+    CapSignatureWithId        = 0x0400_0000, // use some predefined id during signature check
+    CapBounceAfterFailedAction= 0x0800_0000,
+    #[cfg(feature = "groth")]
+    CapGroth16                = 0x1000_0000,
+    CapFeeInGasUnits          = 0x2000_0000, // all fees in config are in gas units
 }
 
 impl ConfigParams {
@@ -386,10 +405,7 @@ impl ConfigParams {
         }
     }
     pub fn global_version(&self) -> u32 {
-        match self.get_global_version() {
-            Ok(gb) => gb.version,
-            Err(_) => 0
-        }
+        self.get_global_version().map_or(0, |gb| gb.version)
     }
 }
 
@@ -480,13 +496,7 @@ impl Deserializable for ConfigParams {
 
 impl Serializable for ConfigParams {
     fn write_to(&self, cell: &mut BuilderData) -> Result<()> {
-        if self.config_params.is_empty() {
-            // Due to ChildCell it is need sometimes to serialize default ConfigParams.
-            // So need to wtite something.
-            cell.append_reference_cell(Cell::default());
-        } else {
-            cell.append_reference_cell(self.config_params.data().unwrap().clone());
-        }
+        cell.checked_append_reference(self.config_params.data().cloned().unwrap_or_default())?;
         self.config_addr.write_to(cell)?;
 
         Ok(())
@@ -500,6 +510,7 @@ pub enum ConfigParamEnum {
     ConfigParam2(ConfigParam2),
     ConfigParam3(ConfigParam3),
     ConfigParam4(ConfigParam4),
+    ConfigParam5(ConfigParam5),
     ConfigParam6(ConfigParam6),
     ConfigParam7(ConfigParam7),
     ConfigParam8(ConfigParam8),
@@ -538,8 +549,7 @@ pub enum ConfigParamEnum {
 macro_rules! read_config {
     ( $cpname:ident, $cname:ident, $slice:expr ) => {
         {
-            let mut c = $cname::default();
-            c.read_from($slice)?;
+            let c = $cname::construct_from($slice)?;
             Ok(ConfigParamEnum::$cpname(c))
         }
     }
@@ -548,7 +558,7 @@ macro_rules! read_config {
 impl ConfigParamEnum {
 
     pub fn construct_from_cell_and_number(cell: Cell, index: u32) -> Result<ConfigParamEnum> {
-        Self::construct_from_slice_and_number(&mut cell.into(), index)
+        Self::construct_from_slice_and_number(&mut SliceData::load_cell(cell)?, index)
     }
 
     /// read config from cell
@@ -559,6 +569,7 @@ impl ConfigParamEnum {
             2 => { read_config!(ConfigParam2, ConfigParam2, slice) },
             3 => { read_config!(ConfigParam3, ConfigParam3, slice) },
             4 => { read_config!(ConfigParam4, ConfigParam4, slice) },
+            5 => { read_config!(ConfigParam5, ConfigParam5, slice) },
             6 => { read_config!(ConfigParam6, ConfigParam6, slice) },
             7 => { read_config!(ConfigParam7, ConfigParam7, slice) },
             8 => { read_config!(ConfigParam8, ConfigParam8, slice) },
@@ -598,45 +609,46 @@ impl ConfigParamEnum {
     /// Save config to cell
     pub fn write_to_cell(&self, cell: &mut BuilderData) -> Result<u32> {
         match self {
-            ConfigParamEnum::ConfigParam0(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(0)},
-            ConfigParamEnum::ConfigParam1(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(1)},
-            ConfigParamEnum::ConfigParam2(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(2)},
-            ConfigParamEnum::ConfigParam3(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(3)},
-            ConfigParamEnum::ConfigParam4(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(4)},
-            ConfigParamEnum::ConfigParam6(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(6)},
-            ConfigParamEnum::ConfigParam7(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(7)},
-            ConfigParamEnum::ConfigParam8(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(8)},
-            ConfigParamEnum::ConfigParam9(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(9)},
-            ConfigParamEnum::ConfigParam10(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(10)},
-            ConfigParamEnum::ConfigParam11(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(11)},
-            ConfigParamEnum::ConfigParam12(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(12)},
-            ConfigParamEnum::ConfigParam13(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(13)},
-            ConfigParamEnum::ConfigParam14(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(14)},
-            ConfigParamEnum::ConfigParam15(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(15)},
-            ConfigParamEnum::ConfigParam16(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(16)},
-            ConfigParamEnum::ConfigParam17(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(17)},
-            ConfigParamEnum::ConfigParam18(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(18)},
-            ConfigParamEnum::ConfigParam20(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(20)},
-            ConfigParamEnum::ConfigParam21(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(21)},
-            ConfigParamEnum::ConfigParam22(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(22)},
-            ConfigParamEnum::ConfigParam23(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(23)},
-            ConfigParamEnum::ConfigParam24(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(24)},
-            ConfigParamEnum::ConfigParam25(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(25)},
-            ConfigParamEnum::ConfigParam28(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(28)},
-            ConfigParamEnum::ConfigParam29(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(29)},
-            ConfigParamEnum::ConfigParam30(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(30)},
-            ConfigParamEnum::ConfigParam31(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(31)},
-            ConfigParamEnum::ConfigParam32(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(32)},
-            ConfigParamEnum::ConfigParam33(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(33)},
-            ConfigParamEnum::ConfigParam34(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(34)},
-            ConfigParamEnum::ConfigParam35(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(35)},
-            ConfigParamEnum::ConfigParam36(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(36)},
-            ConfigParamEnum::ConfigParam37(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(37)},
-            ConfigParamEnum::ConfigParam39(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(39)},
-            ConfigParamEnum::ConfigParam40(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(40)},
-            ConfigParamEnum::ConfigParam42(ref c) => { cell.append_reference_cell(c.serialize()?); Ok(42)},
+            ConfigParamEnum::ConfigParam0(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(0)},
+            ConfigParamEnum::ConfigParam1(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(1)},
+            ConfigParamEnum::ConfigParam2(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(2)},
+            ConfigParamEnum::ConfigParam3(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(3)},
+            ConfigParamEnum::ConfigParam4(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(4)},
+            ConfigParamEnum::ConfigParam5(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(5)},
+            ConfigParamEnum::ConfigParam6(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(6)},
+            ConfigParamEnum::ConfigParam7(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(7)},
+            ConfigParamEnum::ConfigParam8(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(8)},
+            ConfigParamEnum::ConfigParam9(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(9)},
+            ConfigParamEnum::ConfigParam10(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(10)},
+            ConfigParamEnum::ConfigParam11(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(11)},
+            ConfigParamEnum::ConfigParam12(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(12)},
+            ConfigParamEnum::ConfigParam13(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(13)},
+            ConfigParamEnum::ConfigParam14(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(14)},
+            ConfigParamEnum::ConfigParam15(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(15)},
+            ConfigParamEnum::ConfigParam16(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(16)},
+            ConfigParamEnum::ConfigParam17(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(17)},
+            ConfigParamEnum::ConfigParam18(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(18)},
+            ConfigParamEnum::ConfigParam20(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(20)},
+            ConfigParamEnum::ConfigParam21(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(21)},
+            ConfigParamEnum::ConfigParam22(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(22)},
+            ConfigParamEnum::ConfigParam23(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(23)},
+            ConfigParamEnum::ConfigParam24(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(24)},
+            ConfigParamEnum::ConfigParam25(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(25)},
+            ConfigParamEnum::ConfigParam28(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(28)},
+            ConfigParamEnum::ConfigParam29(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(29)},
+            ConfigParamEnum::ConfigParam30(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(30)},
+            ConfigParamEnum::ConfigParam31(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(31)},
+            ConfigParamEnum::ConfigParam32(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(32)},
+            ConfigParamEnum::ConfigParam33(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(33)},
+            ConfigParamEnum::ConfigParam34(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(34)},
+            ConfigParamEnum::ConfigParam35(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(35)},
+            ConfigParamEnum::ConfigParam36(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(36)},
+            ConfigParamEnum::ConfigParam37(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(37)},
+            ConfigParamEnum::ConfigParam39(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(39)},
+            ConfigParamEnum::ConfigParam40(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(40)},
+            ConfigParamEnum::ConfigParam42(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(42)},
             ConfigParamEnum::ConfigParamAny(index, slice) => { 
-                cell.append_reference_cell(slice.clone().into_cell()); 
+                cell.checked_append_reference(slice.clone().into_cell())?; 
                 Ok(*index)
             },
         }
@@ -787,6 +799,28 @@ impl Deserializable for ConfigParam4 {
 impl Serializable for ConfigParam4 {
     fn write_to(&self, cell: &mut BuilderData) -> Result<()> {
         self.dns_root_addr.write_to(cell)?;
+        Ok(())
+    }
+}
+
+///
+/// Config Param 5 structure
+/// 
+#[derive(Clone, Debug, Eq, PartialEq, Default)]
+pub struct ConfigParam5 {
+    pub owner_addr: UInt256,
+}
+
+impl Deserializable for ConfigParam5 {
+    fn construct_from(slice: &mut SliceData) -> Result<Self> {
+        let owner_addr = Deserializable::construct_from(slice)?;
+        Ok(ConfigParam5 { owner_addr })
+    }
+}
+
+impl Serializable for ConfigParam5 {
+    fn write_to(&self, cell: &mut BuilderData) -> Result<()> {
+        self.owner_addr.write_to(cell)?;
         Ok(())
     }
 }
@@ -1276,7 +1310,7 @@ impl ConfigParam18 {
     /// insert value
     pub fn insert(&mut self, sp: &StoragePrices) -> Result<()> {
         let index = match self.map.0.get_max(false, &mut 0)? {
-            Some((key, _value)) => SliceData::from(key.into_cell()?).get_next_u32()? + 1,
+            Some((key, _value)) => SliceData::load_builder(key)?.get_next_u32()? + 1,
             None => 0
         };
         self.map.set(&index, sp)
@@ -2041,13 +2075,13 @@ impl Default for WorkchainFormat0 {
 impl WorkchainFormat0 {
     ///
     /// Create empty new instance of WorkchainFormat0
-    ///
-    pub const fn new() -> Self {
+    /// 
+    pub fn new() -> Self {
         Self {
-            min_addr_len: Number12(64),
-            max_addr_len: Number12(64),
-            addr_len_step: Number12(0),
-            workchain_type_id: Number32(1)
+            min_addr_len: Number12::from(64),
+            max_addr_len: Number12::from(64),
+            addr_len_step: Number12::from(0),
+            workchain_type_id: Number32::from(1)
         }
     }
 
@@ -2060,10 +2094,10 @@ impl WorkchainFormat0 {
            workchain_type_id >= 1 {
                Ok(
                    WorkchainFormat0 {
-                        min_addr_len: Number12(min_addr_len as u32),
-                        max_addr_len: Number12(max_addr_len as u32),
-                        addr_len_step: Number12(addr_len_step as u32),
-                        workchain_type_id: Number32(workchain_type_id as u32),
+                        min_addr_len: Number12::new(min_addr_len as u32)?,
+                        max_addr_len: Number12::new(max_addr_len as u32)?,
+                        addr_len_step: Number12::new(addr_len_step as u32)?,
+                        workchain_type_id: Number32::new(workchain_type_id)?,
                    }
                )
            }
@@ -2082,7 +2116,7 @@ impl WorkchainFormat0 {
     /// Getter for min_addr_len
     ///
     pub fn min_addr_len(&self) -> u16 {
-        self.min_addr_len.0 as u16
+        self.min_addr_len.as_u16()
     }
 
     ///
@@ -2090,7 +2124,7 @@ impl WorkchainFormat0 {
     ///
     pub fn set_min_addr_len(&mut self, min_addr_len: u16) -> Result<()> {
         if (64..=1023).contains(&min_addr_len) {
-            self.min_addr_len.0 = min_addr_len as u32;
+            self.min_addr_len = Number12::new(min_addr_len as u32)?;
             Ok(())
         } else {
             fail!(
@@ -2105,15 +2139,15 @@ impl WorkchainFormat0 {
     /// Getter for min_addr_len
     ///
     pub fn max_addr_len(&self) -> u16 {
-        self.max_addr_len.0 as u16
+        self.max_addr_len.as_u16()
     }
 
     ///
     /// Setter for max_addr_len
     ///
     pub fn set_max_addr_len(&mut self, max_addr_len: u16) -> Result<()> {
-        if (64..=1024).contains(&max_addr_len) && self.min_addr_len.0 <= max_addr_len as u32 {
-            self.max_addr_len.0 = max_addr_len as u32;
+        if (64..=1024).contains(&max_addr_len) && self.min_addr_len <= max_addr_len as u32 {
+            self.max_addr_len = Number12::new(max_addr_len as u32)?;
             Ok(())
         } else {
             fail!(
@@ -2129,7 +2163,7 @@ impl WorkchainFormat0 {
     /// Getter for addr_len_step
     ///
     pub fn addr_len_step(&self) -> u16 {
-        self.addr_len_step.0 as u16
+        self.addr_len_step.as_u16()
     }
 
     ///
@@ -2137,7 +2171,7 @@ impl WorkchainFormat0 {
     ///
     pub fn set_addr_len_step(&mut self, addr_len_step: u16) -> Result<()> {
         if addr_len_step <= 1024 {
-            self.addr_len_step.0 = addr_len_step as u32;
+            self.addr_len_step = Number12::new(addr_len_step as u32)?;
             Ok(())
         } else {
             fail!(
@@ -2150,7 +2184,7 @@ impl WorkchainFormat0 {
     /// Getter for workchain_type_id
     ///
     pub fn workchain_type_id(&self) -> u32 {
-        self.workchain_type_id.0
+        self.workchain_type_id.as_u32()
     }
 
     ///
@@ -2158,7 +2192,7 @@ impl WorkchainFormat0 {
     ///
     pub fn set_workchain_type_id(&mut self, workchain_type_id: u32) -> Result<()> {
         if workchain_type_id >= 1 {
-            self.workchain_type_id.0 = workchain_type_id;
+            self.workchain_type_id = Number32::new(workchain_type_id)?;
             Ok(())
         } else {
             fail!(
@@ -2174,9 +2208,9 @@ impl Deserializable for WorkchainFormat0 {
         let max_addr_len = Number12::construct_from(slice)?;
         let addr_len_step = Number12::construct_from(slice)?;
         let workchain_type_id = Number32::construct_from(slice)?;
-        if min_addr_len.0 >= 64 && min_addr_len.0 <= max_addr_len.0 &&
-           max_addr_len.0 <= 1023 && addr_len_step.0 <= 1023 &&
-           workchain_type_id.0 >= 1 {
+        if min_addr_len >= 64 && min_addr_len <= max_addr_len &&
+           max_addr_len <= 1023 && addr_len_step <= 1023 &&
+           workchain_type_id >= 1 {
                 Ok(Self {
                     min_addr_len,
                     max_addr_len,
@@ -2196,9 +2230,9 @@ impl Deserializable for WorkchainFormat0 {
 
 impl Serializable for WorkchainFormat0 {
     fn write_to(&self, cell: &mut BuilderData) -> Result<()> {
-        if self.min_addr_len.0 >= 64 && self.min_addr_len.0 <= self.max_addr_len.0 &&
-           self.max_addr_len.0 <= 1023 && self.addr_len_step.0 <= 1023 &&
-           self.workchain_type_id.0 >= 1 {
+        if self.min_addr_len >= 64 && self.min_addr_len <= self.max_addr_len &&
+           self.max_addr_len <= 1023 && self.addr_len_step <= 1023 &&
+           self.workchain_type_id >= 1 {
                 self.min_addr_len.write_to(cell)?;
                 self.max_addr_len.write_to(cell)?;
                 self.addr_len_step.write_to(cell)?;
@@ -2340,19 +2374,19 @@ impl Deserializable for WorkchainDescr {
         self.enabled_since.read_from(cell)?;
         let mut min = Number8::default();
         min.read_from(cell)?;
-        self.actual_min_split = min.0 as u8;
+        self.actual_min_split = min.as_u8();
         let mut min = Number8::default();
         min.read_from(cell)?;
-        self.min_split = min.0 as u8;
+        self.min_split = min.as_u8();
         let mut max = Number8::default();
         max.read_from(cell)?;
-        self.max_split = max.0 as u8;
+        self.max_split = max.as_u8();
         cell.get_next_bit()?; // basic
         self.active = cell.get_next_bit()?;
         self.accept_msgs = cell.get_next_bit()?;
         let mut flags = Number13::default();
         flags.read_from(cell)?;
-        self.flags = flags.0 as u16;
+        self.flags = flags.as_u16();
         self.zerostate_root_hash.read_from(cell)?;
         self.zerostate_file_hash.read_from(cell)?;
         self.version.read_from(cell)?;
@@ -2370,13 +2404,13 @@ impl Serializable for WorkchainDescr {
 
             self.enabled_since.write_to(cell)?;
 
-            let min = Number8(self.actual_min_split as u32);
+            let min = Number8::new(self.actual_min_split as u32)?;
             min.write_to(cell)?;
 
-            let min = Number8(self.min_split as u32);
+            let min = Number8::new(self.min_split as u32)?;
             min.write_to(cell)?;
 
-            let max = Number8(self.max_split as u32);
+            let max = Number8::new(self.max_split as u32)?;
             max.write_to(cell)?;
 
             if let WorkchainFormat::Basic(_) = self.format {
@@ -2397,7 +2431,7 @@ impl Serializable for WorkchainDescr {
                 cell.append_bit_zero()?;
             }
 
-            let flags = Number13(self.flags as u32);
+            let flags = Number13::new(self.flags as u32)?;
             flags.write_to(cell)?;
             self.zerostate_root_hash.write_to(cell)?;
             self.zerostate_file_hash.write_to(cell)?;
@@ -2548,8 +2582,8 @@ impl Deserializable for ConfigVotingSetup {
 impl Serializable for ConfigVotingSetup {
     fn write_to(&self, cell: &mut BuilderData) -> Result<()> {
         cell.append_u8(CONFIG_VOTING_SETUP_TAG)?;
-        cell.append_reference_cell(self.normal_params.cell());
-        cell.append_reference_cell(self.critical_params.cell());
+        cell.checked_append_reference(self.normal_params.cell())?;
+        cell.checked_append_reference(self.critical_params.cell())?;
         Ok(())
     }
 }
@@ -2559,9 +2593,6 @@ pub type ConfigParam11 = ConfigVotingSetup;
 /*
 _ workchains:(HashmapE 32 WorkchainDescr) = ConfigParam 12;
 */
-
-
-
 define_HashmapE!{Workchains, 32, WorkchainDescr}
 
 ///
@@ -2630,7 +2661,7 @@ impl Deserializable for ConfigParam13 {
 
 impl Serializable for ConfigParam13 {
     fn write_to(&self, cell: &mut BuilderData) -> Result<()> {
-        cell.checked_append_references_and_data(&self.cell.clone().into())?;
+        cell.checked_append_references_and_data(&SliceData::load_cell_ref(&self.cell)?)?;
         Ok(())
     }
 }
@@ -2782,7 +2813,7 @@ impl Serializable for ValidatorSignedTempKey {
     fn write_to(&self, cell: &mut BuilderData) -> Result<()> {
         cell.append_u8(VALIDATOR_SIGNED_TEMP_KEY_TAG)?; // TODO what is tag length in bits???
         self.signature.write_to(cell)?;
-        cell.append_reference_cell(self.key.serialize()?);
+        cell.checked_append_reference(self.key.serialize()?)?;
         Ok(())
     }
 }
@@ -3189,7 +3220,7 @@ impl Deserializable for ConfigCopyleft {
             fail!(
                 BlockError::InvalidConstructorTag {
                     t: tag as u32,
-                    s: "Copyleft".to_string()
+                    s: std::any::type_name::<Self>().to_string()
                 }
             )
         }

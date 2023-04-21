@@ -52,7 +52,7 @@ impl Serializable for OutActions {
         for action in self.iter() {
             let mut next_builder = BuilderData::new();
 
-            next_builder.append_reference_cell(builder.into_cell()?);
+            next_builder.checked_append_reference(builder.into_cell()?)?;
             action.write_to(&mut next_builder)?;
 
             builder = next_builder;
@@ -74,7 +74,7 @@ impl Deserializable for OutActions {
             let prev_cell = cell.checked_drain_reference()?;
             let action = OutAction::construct_from(&mut cell)?;
             self.push_front(action);
-            cell = prev_cell.into();
+            cell = SliceData::load_cell(prev_cell)?;
         }
         if !cell.is_empty() {
             fail!(BlockError::Other("cell is not empty".to_string()))
@@ -88,7 +88,7 @@ impl Deserializable for OutActions {
 ///
 /// Enum OutAction
 ///
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Default, Debug, Eq, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 pub enum OutAction {
 
@@ -136,13 +136,8 @@ pub enum OutAction {
         address: AccountId,
     },
 
+    #[default]
     None
-}
-
-impl Default for OutAction {
-    fn default() -> Self {
-        OutAction::None
-    }
 }
 
 /// Flags of SendMsg action
@@ -233,12 +228,12 @@ impl Serializable for OutAction {
             OutAction::SendMsg{ref mode, ref out_msg} => {
                 ACTION_SEND_MSG.write_to(cell)?; // tag
                 mode.write_to(cell)?;
-                cell.append_reference_cell(out_msg.serialize()?);
-            },
+                cell.checked_append_reference(out_msg.serialize()?)?;
+            }
             OutAction::SetCode{ref new_code} => {
                 ACTION_SET_CODE.write_to(cell)?; //tag
-                cell.append_reference_cell(new_code.clone());
-            },
+                cell.checked_append_reference(new_code.clone())?;
+            }
             OutAction::ReserveCurrency{ref mode, ref value} => {
                 ACTION_RESERVE.write_to(cell)?; // tag
                 mode.write_to(cell)?;
@@ -251,7 +246,7 @@ impl Serializable for OutAction {
                     value.write_to(cell)?;
                 }
                 if let Some(value) = code {
-                    cell.append_reference_cell(value.clone());
+                    cell.checked_append_reference(value.clone())?;
                 }
             }
             OutAction::CopyLeft{ref license, ref address} => {

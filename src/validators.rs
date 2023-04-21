@@ -21,6 +21,7 @@ use crate::{
     shard::{SHARD_FULL, MASTERCHAIN_ID}
 };
 
+use crc::{Crc, CRC_32_ISCSI};
 use std::{
     io::{Write, Cursor},
     cmp::{min, Ordering},
@@ -28,11 +29,12 @@ use std::{
 };
 use sha2::{Digest, Sha256, Sha512};
 use ton_types::types::ByteOrderRead;
-use crc::{Crc, CRC_32_ISCSI};
 use ton_types::{
     fail, Result,
     UInt256, BuilderData, Cell, HashmapE, HashmapType, IBitstring, SliceData,
 };
+
+pub const CASTAGNOLI: Crc<u32> = Crc::<u32>::new(&CRC_32_ISCSI);
 
 /*
 validator_info$_
@@ -144,11 +146,21 @@ impl Deserializable for ValidatorBaseInfo {
     }
 }
 
-
 /*
 validator#53
     public_key:SigPubKey
     weight:uint64
+= ValidatorDescr;
+validator#73
+    public_key:SigPubKey
+    weight:uint64
+    adnl_addr:bits256
+= ValidatorDescr;
+validator#93
+    public_key:SigPubKey
+    weight:uint64
+    adnl_addr:bits256
+    mc_seq_no_since:u32
 = ValidatorDescr;
 */
 
@@ -167,10 +179,10 @@ pub struct ValidatorDescr {
     pub prev_weight_sum: u64,
 }
 
-#[allow(clippy::derive_hash_xor_eq)]
+#[allow(clippy::derived_hash_with_manual_eq)]
 impl std::hash::Hash for ValidatorDescr {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.public_key.key_bytes().hash(state);
+        self.public_key.as_slice().hash(state);
         if let Some(aa) = &self.adnl_addr {
             aa.hash(state)
         }
@@ -204,8 +216,8 @@ impl ValidatorDescr {
 
     pub fn compute_node_id_short(&self) -> UInt256 {
         let mut hasher = Sha256::new();
-        let magic = [0xc6, 0xb4, 0x13, 0x48]; // magic 0x4813b4c6 from original node's code
-        hasher.update(&magic);
+        let magic = [0xc6u8, 0xb4, 0x13, 0x48]; // magic 0x4813b4c6 from original node's code
+        hasher.update(magic);
         hasher.update(self.public_key.as_slice());
         From::<[u8; 32]>::from(hasher.finalize().into())
     }
@@ -220,13 +232,20 @@ impl ValidatorDescr {
 
 const VALIDATOR_DESC_TAG: u8 = 0x53;
 const VALIDATOR_DESC_ADDR_TAG: u8 = 0x73;
-const VALIDATOR_DESC_ADDR_SECNO_TAG: u8 = 0x93;
+const VALIDATOR_DESC_ADDR_SEQNO_TAG: u8 = 0x93;
 
 impl Serializable for ValidatorDescr {
     fn write_to(&self, cell: &mut BuilderData) -> Result<()> {
-        let tag = if self.mc_seq_no_since != 0 { VALIDATOR_DESC_ADDR_SECNO_TAG }
-        else if self.adnl_addr.is_some() { VALIDATOR_DESC_ADDR_TAG }
-        else {VALIDATOR_DESC_TAG};
+        let tag = if self.mc_seq_no_since != 0 {
+            if self.adnl_addr.is_none() {
+                fail!("if mc_seq_no_since is not zero ADNL address must be specified too")
+            }
+            VALIDATOR_DESC_ADDR_SEQNO_TAG
+        } else if self.adnl_addr.is_some() {
+            VALIDATOR_DESC_ADDR_TAG
+        } else {
+            VALIDATOR_DESC_TAG
+        };
         cell.append_u8(tag)?;
         self.public_key.write_to(cell)?;
         self.weight.write_to(cell)?;
@@ -243,24 +262,28 @@ impl Serializable for ValidatorDescr {
 impl Deserializable for ValidatorDescr {
     fn construct_from(slice: &mut SliceData) -> Result<Self> {
         let tag = slice.get_next_byte()?;
-        if !matches!(tag, VALIDATOR_DESC_TAG | VALIDATOR_DESC_ADDR_TAG | VALIDATOR_DESC_ADDR_SECNO_TAG) {
-            fail!(
-                BlockError::InvalidConstructorTag {
-                    t: tag as u32,
-                    s: "ValidatorDescr".to_string()
-                }
-            )
+        let (public_key, weight, adnl_addr, mc_seq_no_since);
+        match tag {
+            VALIDATOR_DESC_TAG => {
+                public_key = Deserializable::construct_from(slice)?;
+                weight = Deserializable::construct_from(slice)?;
+                adnl_addr = None;
+                mc_seq_no_since = 0;
+            }
+            VALIDATOR_DESC_ADDR_TAG => {
+                public_key = Deserializable::construct_from(slice)?;
+                weight = Deserializable::construct_from(slice)?;
+                adnl_addr = Some(Deserializable::construct_from(slice)?);
+                mc_seq_no_since = 0;
+            }
+            VALIDATOR_DESC_ADDR_SEQNO_TAG => {
+                public_key = Deserializable::construct_from(slice)?;
+                weight = Deserializable::construct_from(slice)?;
+                adnl_addr = Some(Deserializable::construct_from(slice)?);
+                mc_seq_no_since = Deserializable::construct_from(slice)?;
+            }
+            tag => fail!(Self::invalid_tag(tag as u32))
         }
-        let public_key = Deserializable::construct_from(slice)?;
-        let weight = Deserializable::construct_from(slice)?;
-        let (adnl_addr, mc_seq_no_since) = match tag {
-            VALIDATOR_DESC_ADDR_SECNO_TAG => (
-                Some(Deserializable::construct_from(slice)?),
-                Deserializable::construct_from(slice)?
-            ),
-            VALIDATOR_DESC_ADDR_TAG => (Some(Deserializable::construct_from(slice)?), 0),
-            _ => (None, 0)
-        };
         Ok(Self {
             public_key,
             weight,
@@ -363,7 +386,7 @@ impl ValidatorSet {
         }
         Ok(ValidatorSet {
             utime_since,
-            utime_until, 
+            utime_until,
             total: Number16::from(list.len() as u16),
             main: Number16::from(main),
             total_weight,
@@ -465,7 +488,7 @@ impl ValidatorSet {
         let is_master = (shard_pfx == SHARD_FULL) && (workchain_id == MASTERCHAIN_ID);
 
         let subset = if is_master {
-            let count = min(self.total.0, self.main.0) as usize;
+            let count = min(self.total.as_usize(), self.main.as_usize());
             if !cc_config.shuffle_mc_validators {
                 self.list[0..count].to_vec()
             } else {
@@ -487,12 +510,12 @@ impl ValidatorSet {
         } else {
             let mut prng = ValidatorSetPRNG::new(shard_pfx, workchain_id, cc_seqno);
             let full_list = if cc_config.isolate_mc_validators {
-                if self.total.0 <= self.main.0 {
+                if self.total <= self.main {
                     fail!("Count of validators is too small to make sharde's subset while `isolate_mc_validators` flag is set")
                 }
-                let list = self.list[self.main.0 as usize..].to_vec();
+                let list = self.list[self.main.as_usize()..].to_vec();
                 Cow::Owned(
-                    Self::new(self.utime_since, self.utime_until, self.main.0 as u16, list)?
+                    Self::new(self.utime_since, self.utime_until, self.main.as_u16(), list)?
                 )
 
             } else {
@@ -554,7 +577,7 @@ impl ValidatorSet {
     const HASH_SHORT_MAGIC: u32 = 0x901660ED;
 
     pub fn calc_subset_hash_short(subset: &[ValidatorDescr], cc_seqno: u32) -> Result<u32> {
-        let mut hasher = CRC.digest();
+        let mut hasher = CASTAGNOLI.digest();
         hasher.update(&Self::HASH_SHORT_MAGIC.to_le_bytes());
         hasher.update(&cc_seqno.to_le_bytes());
         hasher.update(&(subset.len() as u32).to_le_bytes());
@@ -571,8 +594,6 @@ impl ValidatorSet {
     }
 }
 
-static CRC: Crc<u32> = Crc::<u32>::new(&CRC_32_ISCSI);
-
 const VALIDATOR_SET_TAG: u8 = 0x11;
 const VALIDATOR_SET_EX_TAG: u8 = 0x12;
 
@@ -586,7 +607,7 @@ impl Serializable for ValidatorSet {
 
         let mut validators = ValidatorDescriptions::default();
         for (i, v) in self.list.iter().enumerate() {
-            validators.set(&(i as u16), v).unwrap();
+            validators.set(&(i as u16), v)?;
         }
         self.total_weight.write_to(cell)?;
         validators.write_to(cell)?;
@@ -598,12 +619,7 @@ impl Deserializable for ValidatorSet {
     fn read_from(&mut self, cell: &mut SliceData) -> Result<()> {
         let tag = cell.get_next_byte()?;
         if !matches!(tag, VALIDATOR_SET_TAG | VALIDATOR_SET_EX_TAG) {
-            fail!(
-                BlockError::InvalidConstructorTag {
-                    t: tag as u32,
-                    s: "ValidatorSet".to_string()
-                }
-            )
+            fail!(Self::invalid_tag(tag as u32))
         }
         self.utime_since.read_from(cell)?;
         self.utime_until.read_from(cell)?;
@@ -619,7 +635,7 @@ impl Deserializable for ValidatorSet {
         self.list.clear();
         let mut total_weight = 0;
         for i in 0..self.total.as_u16() {
-            let mut val = validators.get(&(i as u16))?.ok_or_else(|| 
+            let mut val = validators.get(&i)?.ok_or_else(||
                 BlockError::InvalidData(format!("Validator's hash map doesn't \
                     contain validator with index {}", i)))?;
             val.prev_weight_sum = total_weight;
@@ -638,7 +654,7 @@ impl Deserializable for ValidatorSet {
         if self.main > self.total {
             fail!(BlockError::InvalidData("main > total while read ValidatorSet".to_string()))
         }
-        if self.main < Number16(1) {
+        if self.main < Number16::new(1)? {
             fail!(BlockError::InvalidData("main < 1 while read ValidatorSet".to_string()))
         }
         Ok(())
@@ -680,9 +696,7 @@ impl ValidatorSetPRNG {
 
     fn reset(&mut self) -> u64 {
         // calc hash
-        let mut hasher = Sha512::new();
-        hasher.update(&self.context[..]);
-        let mut hash = Cursor::new(hasher.finalize());
+        let mut hash = Cursor::new(Sha512::digest(&self.context));
 
         // increment seed
         for i in (0..32).rev() {
@@ -717,3 +731,4 @@ impl ValidatorSetPRNG {
         ((range as u128 * val as u128) >> 64) as u64
     }
 }
+

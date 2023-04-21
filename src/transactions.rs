@@ -20,7 +20,7 @@ use crate::{
     merkle_proof::MerkleProof,
     messages::Message,
     shard::ShardStateUnsplit,
-    types::{AddSub, ChildCell, CurrencyCollection, Grams, InRefValue, VarUInteger3, VarUInteger7},
+    types::{ChildCell, CurrencyCollection, Grams, InRefValue, VarUInteger3, VarUInteger7},
     Deserializable, MaybeDeserialize, MaybeSerialize, Serializable,
 };
 use std::{fmt, sync::Arc};
@@ -35,17 +35,12 @@ acst_unchanged$0 = AccStatusChange;  // x -> x
 acst_frozen$10 = AccStatusChange;    // init -> frozen
 acst_deleted$11 = AccStatusChange;   // frozen -> deleted
 */
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Default, Debug, Eq, PartialEq)]
 pub enum AccStatusChange {
+    #[default]
     Unchanged,
     Frozen,
     Deleted,
-}
-
-impl Default for AccStatusChange {
-    fn default() -> Self {
-        AccStatusChange::Unchanged
-    }
 }
 
 impl Serializable for AccStatusChange {
@@ -78,17 +73,12 @@ cskip_no_state$00 = ComputeSkipReason;
 cskip_bad_state$01 = ComputeSkipReason;
 cskip_no_gas$10 = ComputeSkipReason;
 */
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Default, Debug, Eq, PartialEq)]
 pub enum ComputeSkipReason {
+    #[default]
     NoState,
     BadState,
     NoGas,
-}
-
-impl Default for ComputeSkipReason {
-    fn default() -> Self {
-        ComputeSkipReason::NoState
-    }
 }
 
 impl Serializable for ComputeSkipReason {
@@ -129,7 +119,7 @@ tr_phase_compute_vm$1
     success:Bool
     msg_state_used:Bool
     account_activated:Bool
-    gas_fees:Gram // is it spec's typo? I think should be "Grams"
+    gas_fees:Grams
     _:^[
         gas_used:(VarUInteger 7)
         gas_limit:(VarUInteger 7)
@@ -244,7 +234,7 @@ impl Serializable for TrComputePhase {
             v.vm_init_state_hash.write_to(&mut sep_cell)?; // vm_init_state_hash:uint256
             v.vm_final_state_hash.write_to(&mut sep_cell)?; // vm_final_state_hash:uint256
 
-            cell.append_reference_cell(sep_cell.into_cell()?);
+            cell.checked_append_reference(sep_cell.into_cell()?)?;
         }
 
         Ok(())
@@ -264,7 +254,7 @@ impl Deserializable for TrComputePhase {
             let gas_fees = Deserializable::construct_from(cell)?; // gas_fees:Gram
 
             // fields below are serialized into separate cell
-            let sep_cell = &mut cell.checked_drain_reference()?.into();
+            let sep_cell = &mut SliceData::load_cell(cell.checked_drain_reference()?)?;
 
             let gas_used = Deserializable::construct_from(sep_cell)?; // gas_used:(VarUInteger 7)
             let gas_limit = Deserializable::construct_from(sep_cell)?; // gas_limit:(VarUInteger 7)
@@ -310,14 +300,6 @@ pub struct TrStoragePhase {
 }
 
 impl TrStoragePhase {
-    pub fn new() -> Self {
-        Self {
-            storage_fees_collected: Grams::default(),
-            storage_fees_due: None,
-            status_change: AccStatusChange::default()
-
-        }
-    }
     pub const fn with_params(collected: Grams, due: Option<Grams>, status: AccStatusChange) -> Self {
         TrStoragePhase {
             storage_fees_collected: collected,
@@ -374,17 +356,12 @@ pub struct TrBouncePhaseOk {
     pub fwd_fees: Grams,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Default, Debug, Eq, PartialEq)]
 pub enum TrBouncePhase {
+    #[default]
     Negfunds,
     Nofunds(TrBouncePhaseNofunds),
     Ok(TrBouncePhaseOk),
-}
-
-impl Default for TrBouncePhase {
-    fn default() -> Self {
-        TrBouncePhase::Negfunds
-    }
 }
 
 impl TrBouncePhase {
@@ -520,8 +497,9 @@ tick$0 = TickTock;
 tock$1 = TickTock;
 There are two kinds of TickTock: in transaction and in messages.
 */
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(PartialEq, Default, Eq, Clone, Debug)]
 pub enum TransactionTickTock {
+    #[default]
     Tick,
     Tock
 }
@@ -532,12 +510,6 @@ impl TransactionTickTock {
     }
     pub fn is_tock(&self) -> bool {
         self == &TransactionTickTock::Tock
-    }
-}
-
-impl Default for TransactionTickTock {
-    fn default() -> Self {
-        TransactionTickTock::Tick
     }
 }
 
@@ -725,7 +697,7 @@ impl Serializable for TransactionDescrOrdinary {
         cell.append_bit_bool(self.destroyed)?;
 
         if let Some(a) = &self.action {
-            cell.append_reference_cell(a.serialize()?);
+            cell.checked_append_reference(a.serialize()?)?;
         }
 
         Ok(())
@@ -804,7 +776,7 @@ impl Serializable for TransactionDescrTickTock {
         cell.append_bit_bool(self.destroyed)?;
 
         if let Some(a) = &self.action {
-            cell.append_reference_cell(a.serialize()?);
+            cell.checked_append_reference(a.serialize()?)?;
         }
 
         Ok(())
@@ -855,7 +827,7 @@ impl Serializable for TransactionDescrSplitPrepare {
         cell.append_bit_bool(self.destroyed)?;
 
         if let Some(a) = &self.action {
-            cell.append_reference_cell(a.serialize()?);
+            cell.checked_append_reference(a.serialize()?)?;
         }
 
         Ok(())
@@ -896,7 +868,7 @@ impl Serializable for TransactionDescrSplitInstall {
     fn write_to(&self, cell: &mut BuilderData) -> Result<()> {
         self.split_info.write_to(cell)?;
         cell.append_bit_bool(self.installed)?;
-        cell.append_reference_cell(self.prepare_transaction.serialize()?);
+        cell.checked_append_reference(self.prepare_transaction.serialize()?)?;
         Ok(())
     }
 }
@@ -968,7 +940,7 @@ pub struct TransactionDescrMergeInstall {
 impl Serializable for TransactionDescrMergeInstall {
     fn write_to(&self, cell: &mut BuilderData) -> Result<()> {
         self.split_info.write_to(cell)?;
-        cell.append_reference_cell(self.prepare_transaction.serialize()?);
+        cell.checked_append_reference(self.prepare_transaction.serialize()?)?;
         self.credit_ph.write_maybe_to(cell)?;
         self.compute_ph.write_to(cell)?;
         cell.append_bit_bool(self.action.is_some())?;
@@ -976,7 +948,7 @@ impl Serializable for TransactionDescrMergeInstall {
         cell.append_bit_bool(self.destroyed)?;
 
         if let Some(a) = &self.action {
-            cell.append_reference_cell(a.serialize()?);
+            cell.checked_append_reference(a.serialize()?)?;
         }
 
         Ok(())
@@ -1405,7 +1377,7 @@ impl Transaction {
 
     /// add fee
     pub fn add_fee_grams(&mut self, fee: &Grams) -> Result<bool> {
-        self.total_fees.grams.add(fee)
+        crate::types::AddSub::add(&mut self.total_fees.grams, fee)
     }
 
     /// set total fees
@@ -1537,7 +1509,7 @@ impl Transaction {
         // proof for transaction and block info in block
 
         let usage_tree = UsageTree::with_root(block_root.clone());
-        let block: Block = Block::construct_from(&mut usage_tree.root_slice())?;
+        let block = Block::construct_from_cell(usage_tree.root_cell())?;
 
         block.read_info()?;
 
@@ -1645,17 +1617,17 @@ impl Serializable for Transaction {
         match &self.in_msg {
             Some(in_msg) => {
                 builder1.append_bit_one()?;
-                builder1.append_reference_cell(in_msg.cell());
+                builder1.checked_append_reference(in_msg.cell())?;
             },
             None => {
                 builder1.append_bit_zero()?;
             }
         };
         self.out_msgs.write_to(&mut builder1)?;
-        builder.append_reference_cell(builder1.into_cell()?);
+        builder.checked_append_reference(builder1.into_cell()?)?;
         self.total_fees.write_to(builder)?; // total_fees
-        builder.append_reference_cell(self.state_update.cell()); // ^(HASH_UPDATE Account)
-        builder.append_reference_cell(self.description.cell()); // ^TransactionDescr
+        builder.checked_append_reference(self.state_update.cell())?; // ^(HASH_UPDATE Account)
+        builder.checked_append_reference(self.description.cell())?; // ^TransactionDescr
 
         Ok(())
     }
@@ -1680,7 +1652,7 @@ impl Deserializable for Transaction {
         self.outmsg_cnt = cell.get_next_int(15)? as i16; // outmsg_cnt
         self.orig_status.read_from(cell)?; // orig_status
         self.end_status.read_from(cell)?; // end_status
-        let cell1 = &mut SliceData::from(cell.checked_drain_reference()?);
+        let cell1 = &mut SliceData::load_cell(cell.checked_drain_reference()?)?;
         if cell1.get_next_bit()? {
             let mut msg = ChildCell::default();
             msg.read_from_reference(cell1)?;
@@ -1704,9 +1676,18 @@ impl Transactions {
         let total_fees = tr.total_fees();
         self.setref(&lt, &cell, total_fees)
     }
+    pub fn total_fees(&self) -> &CurrencyCollection {
+        self.root_extra()
+    }
 }
 
 impl Augmentation<CurrencyCollection> for Transaction {
+    fn aug(&self) -> Result<CurrencyCollection> {
+        Ok(self.total_fees.clone())
+    }
+}
+
+impl Augmentation<CurrencyCollection> for InRefValue<Transaction> {
     fn aug(&self) -> Result<CurrencyCollection> {
         Ok(self.total_fees.clone())
     }
@@ -1859,7 +1840,7 @@ impl Serializable for AccountBlock {
         cell.append_bits(ACCOUNT_BLOCK_TAG, 4)?;
         self.account_addr.write_to(cell)?;                                  // account_addr: AccountId,
         self.transactions.write_hashmap_root(cell)?;
-        cell.append_reference_cell(self.state_update.cell());      // ^(HASH_UPDATE Account)
+        cell.checked_append_reference(self.state_update.cell())?;      // ^(HASH_UPDATE Account)
         Ok(())
     }
 }
@@ -1890,6 +1871,12 @@ impl Deserializable for AccountBlock {
 // 4.2.17. Collection of all transactions in a block.
 // _ (HashmapAugE 256 AccountBlock CurrencyCollection) = ShardAccountBlocks;
 define_HashmapAugE!(ShardAccountBlocks, 256, UInt256, AccountBlock, CurrencyCollection);
+
+impl Augmentation<CurrencyCollection> for AccountBlock {
+    fn aug(&self) -> Result<CurrencyCollection> {
+        Ok(self.transactions.total_fees().clone())
+    }
+}
 
 /// external interface for ShardAccountBlock
 impl ShardAccountBlocks {
@@ -1925,12 +1912,11 @@ impl ShardAccountBlocks {
                 }
                 account_state_update.new_hash = state_update.new_hash;
                 account_block.write_state_update(&account_state_update)?;
+                account_block.add_serialized_transaction(transaction, transaction_cell)?;
             }
             None => account_block = AccountBlock::with_transaction(account_id.clone(), transaction)?
         };
-        // append transaction to AccountBlock
-        account_block.add_serialized_transaction(transaction, transaction_cell)?;
-        self.set_builder_serialized(account_id.clone(), &account_block.write_to_new_cell()?, transaction.total_fees())?;
+        self.set_builder_serialized(account_id.clone(), &account_block.write_to_new_cell()?, &account_block.aug()?)?;
         Ok(())
     }
 
@@ -1948,17 +1934,12 @@ impl ShardAccountBlocks {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Clone, Copy)]
+#[derive(Debug, Default, Eq, PartialEq, Clone, Copy)]
 pub enum TransactionProcessingStatus {
+    #[default]
     Unknown = 0,
     Preliminary,
     Proposed,
     Finalized,
     Refused,
-}
-
-impl Default for TransactionProcessingStatus {
-    fn default() -> Self {
-        TransactionProcessingStatus::Unknown
-    }
 }

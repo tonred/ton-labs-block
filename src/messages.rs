@@ -189,12 +189,6 @@ impl MsgAddressExt {
     }
 }
 
-impl Default for MsgAddressExt {
-    fn default() -> Self{
-        MsgAddressExt::AddrNone
-    }
-}
-
 impl FromStr for MsgAddressExt {
     type Err = anyhow::Error;
     fn from_str(string: &str) -> Result<Self> {
@@ -317,7 +311,7 @@ impl FromStr for MsgAddress {
                 )
             )?;
 
-        if workchain_id < 128 && workchain_id >= -128 {
+        if (-128..128).contains(&workchain_id) {
             if address.remaining_bits() != 256 {
                 fail!(
                     BlockError::InvalidArg(
@@ -336,12 +330,6 @@ impl FromStr for MsgAddress {
         } else {
             Ok(MsgAddress::with_variant(anycast, workchain_id, address)?)
         }
-    }
-}
-
-impl Default for MsgAddress {
-    fn default() -> Self {
-        MsgAddress::AddrNone
     }
 }
 
@@ -500,8 +488,9 @@ impl fmt::Display for InternalMessageHeader {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Default, Debug, Eq, PartialEq)]
 pub enum MsgAddressIntOrNone {
+    #[default]
     None,
     Some(MsgAddressInt)
 }
@@ -522,12 +511,6 @@ impl MsgAddressIntOrNone {
             MsgAddressIntOrNone::None       => None,
             MsgAddressIntOrNone::Some(addr) => addr.get_rewrite_pfx()
         }
-    }
-}
-
-impl Default for MsgAddressIntOrNone {
-    fn default() -> Self {
-        MsgAddressIntOrNone::None
     }
 }
 
@@ -1138,13 +1121,6 @@ impl Message {
         self.init = Some(init);
     }
 
-    #[deprecated]
-    pub fn state_init_mut(&mut self) -> &mut Option<StateInit> {
-        self.body_to_ref = None;
-        self.init_to_ref = None;
-        &mut self.init
-    }
-
     pub fn has_body(&self) -> bool {
         match &self.body {
             Some(body) => !body.is_empty(),
@@ -1160,13 +1136,6 @@ impl Message {
         self.body_to_ref = None;
         self.init_to_ref = None;
         self.body = Some(body);
-    }
-
-    #[deprecated]
-    pub fn body_mut(&mut self) -> &mut Option<SliceData> {
-        self.body_to_ref = None;
-        self.init_to_ref = None;
-        &mut self.body
     }
 
     ///
@@ -1415,7 +1384,7 @@ impl Message {
 
         let msg_hash = self.hash()?;
         let usage_tree = UsageTree::with_root(block_root.clone());
-        let block: Block = Block::construct_from(&mut usage_tree.root_slice()).unwrap();
+        let block = Block::construct_from_cell(usage_tree.root_cell()).unwrap();
 
         block.read_info()?;
 
@@ -1534,7 +1503,7 @@ impl Message {
 impl Serializable for Message {
     fn write_to(&self, builder: &mut BuilderData) -> Result<()> {
         // first try to serialize as it was
-        if self.body_to_ref != None || self.init_to_ref != None {
+        if self.body_to_ref.is_some() || self.init_to_ref.is_none() {
             let b = builder.clone();
             if self.serialize_with_params(builder, &self.body_to_ref, &self.init_to_ref).is_ok() {
                 return Ok(())
@@ -1557,8 +1526,8 @@ impl Deserializable for Message {
             let mut init = StateInit::default();
             if cell.get_next_bit()? { // either of init
                 // read from reference
-                let mut r = cell.checked_drain_reference()?.into();
-                init.read_from(&mut r)?;
+                let r = cell.checked_drain_reference()?;
+                init.read_from_cell(r)?;
                 self.init = Some(init);
                 self.init_to_ref = Some(true);
             } else { // read from current cell
@@ -1579,7 +1548,7 @@ impl Deserializable for Message {
 
         self.body = if cell.get_next_bit()? { // body in reference
             self.body_to_ref = Some(true);
-            Some(cell.checked_drain_reference()?.into())
+            Some(SliceData::load_cell(cell.checked_drain_reference()?)?)
         } else {
             self.body_to_ref = Some(false);
             if cell.is_empty() { // no body
@@ -1800,8 +1769,9 @@ impl Deserializable for StateInit {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Clone, Copy)]
+#[derive(Debug, Default, Eq, PartialEq, Clone, Copy)]
 pub enum MessageProcessingStatus {
+    #[default]
     Unknown = 0,
     Queued,
     Processing,
@@ -1810,12 +1780,6 @@ pub enum MessageProcessingStatus {
     Finalized,
     Refused,
     Transiting,
-}
-
-impl Default for MessageProcessingStatus {
-    fn default() -> Self {
-        MessageProcessingStatus::Unknown
-    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1852,8 +1816,9 @@ impl Deserializable for MsgAddrExt {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Hash)]
 pub enum MsgAddressExt {
+    #[default]
     AddrNone,
     AddrExtern(MsgAddrExt),
 }
@@ -1940,8 +1905,9 @@ impl Deserializable for MsgAddressInt {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Ord, PartialOrd, Hash)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub enum MsgAddress {
+    #[default]
     AddrNone,
     AddrExt(MsgAddrExt),
     AddrStd(MsgAddrStd),

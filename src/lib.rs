@@ -12,7 +12,7 @@
 */
 
 #![allow(clippy::many_single_char_names)]
-#![allow(clippy::derive_hash_xor_eq)]
+#![allow(clippy::derived_hash_with_manual_eq)]
 #![allow(clippy::derive_ord_xor_partial_ord)]
 #![allow(clippy::large_enum_variant)]
 #![cfg_attr(feature = "ci_run", deny(warnings))]
@@ -77,15 +77,12 @@ pub use self::miscellaneous::*;
 pub mod signature;
 pub use self::signature::*;
 
-pub mod signed_block;
-pub use self::signed_block::*;
-
 pub mod config_params;
 pub use self::config_params::*;
 
 use std::{collections::HashMap, hash::Hash};
 use ton_types::{
-    fail, Result,
+    error, fail, Result,
     AccountId, UInt256,
     BuilderData, Cell, IBitstring, SliceData, HashmapE, HashmapType,
 };
@@ -99,8 +96,8 @@ where
         let bit_len = K::default().write_to_new_cell()?.length_in_bits();
         let mut dictionary = HashmapE::with_bit_len(bit_len);
         for (key, value) in self.iter() {
-            let key = key.serialize()?;
-            dictionary.set_builder(key.into(), &value.write_to_new_cell()?)?;
+            let key = SliceData::load_builder(key.write_to_new_cell()?)?;
+            dictionary.set_builder(key, &value.write_to_new_cell()?)?;
         }
         dictionary.write_to(cell)
     }
@@ -176,7 +173,7 @@ pub trait Deserializable: Default {
         }
     }
     fn construct_from_cell(cell: Cell) -> Result<Self> {
-        Self::construct_from(&mut cell.into())
+        Self::construct_from(&mut SliceData::load_cell(cell)?)
     }
     fn construct_from_reference(slice: &mut SliceData) -> Result<Self> {
         Self::construct_from_cell(slice.checked_drain_reference()?)
@@ -184,7 +181,7 @@ pub trait Deserializable: Default {
     /// adapter for tests
     fn construct_from_bytes(mut bytes: &[u8]) -> Result<Self> {
         let cell = ton_types::deserialize_tree_of_cells(&mut bytes)?;
-        Self::construct_from(&mut cell.into())
+        Self::construct_from_cell(cell)
     }
     /// adapter for tests
     fn construct_from_base64(string: &str) -> Result<Self> {
@@ -201,10 +198,14 @@ pub trait Deserializable: Default {
         Ok(())
     }
     fn read_from_cell(&mut self, cell: Cell) -> Result<()> {
-        self.read_from(&mut cell.into())
+        self.read_from(&mut SliceData::load_cell(cell)?)
     }
     fn read_from_reference(&mut self, slice: &mut SliceData) -> Result<()> {
         self.read_from_cell(slice.checked_drain_reference()?)
+    }
+    fn invalid_tag(t: u32) -> anyhow::Error {
+        let s = std::any::type_name::<Self>().to_string();
+        error!(BlockError::InvalidConstructorTag { t, s })
     }
 }
 
@@ -221,7 +222,7 @@ impl Deserializable for Cell {
 
 impl Serializable for Cell {
     fn write_to(&self, cell: &mut BuilderData) -> Result<()> {
-        cell.append_reference_cell(self.clone());
+        cell.checked_append_reference(self.clone())?;
         Ok(())
     }
 }
