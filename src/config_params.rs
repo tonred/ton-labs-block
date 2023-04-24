@@ -368,7 +368,6 @@ pub enum GlobalCapabilities {
     CapStcontNewFormat        = 0x0080_0000, // support old format continuation serialization
     CapFastStorageStatBugfix  = 0x0100_0000, // calc cell datasize using fast storage stat
     CapResolveMerkleCell      = 0x0200_0000,
-    #[cfg(feature = "signature_with_id")]
     CapSignatureWithId        = 0x0400_0000, // use some predefined id during signature check
     CapBounceAfterFailedAction= 0x0800_0000,
     #[cfg(feature = "groth")]
@@ -647,8 +646,8 @@ impl ConfigParamEnum {
             ConfigParamEnum::ConfigParam39(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(39)},
             ConfigParamEnum::ConfigParam40(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(40)},
             ConfigParamEnum::ConfigParam42(ref c) => { cell.checked_append_reference(c.serialize()?)?; Ok(42)},
-            ConfigParamEnum::ConfigParamAny(index, slice) => { 
-                cell.checked_append_reference(slice.clone().into_cell())?; 
+            ConfigParamEnum::ConfigParamAny(index, slice) => {
+                cell.checked_append_reference(slice.clone().into_cell())?;
                 Ok(*index)
             },
         }
@@ -805,7 +804,7 @@ impl Serializable for ConfigParam4 {
 
 ///
 /// Config Param 5 structure
-/// 
+///
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct ConfigParam5 {
     pub owner_addr: UInt256,
@@ -1814,7 +1813,7 @@ impl IntoIterator for &FundamentalSmcAddresses {
 
 ///
 /// ConfigParam 30;
-/// 
+///
 
 const DELECTOR_PARAMS_TAG: u8 = 0x1;
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -2075,7 +2074,7 @@ impl Default for WorkchainFormat0 {
 impl WorkchainFormat0 {
     ///
     /// Create empty new instance of WorkchainFormat0
-    /// 
+    ///
     pub fn new() -> Self {
         Self {
             min_addr_len: Number12::from(64),
@@ -3238,4 +3237,3 @@ impl Serializable for ConfigCopyleft {
         Ok(())
     }
 }
-
