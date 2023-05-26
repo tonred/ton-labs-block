@@ -11,7 +11,6 @@
 * limitations under the License.
 */
 
-use crate::types::AddSub;
 use crate::{
     config_params::{CatchainConfig, GlobalVersion},
     define_HashmapE,
@@ -23,10 +22,13 @@ use crate::{
     shard::ShardIdent,
     signature::BlockSignatures,
     transactions::ShardAccountBlocks,
-    types::{ChildCell, CurrencyCollection, Grams, InRefValue, UnixTime32},
+    types::{ChildCell, CurrencyCollection, Grams, InRefValue, UnixTime32, AddSub},
     validators::ValidatorSet,
     Deserializable, MaybeDeserialize, MaybeSerialize, Serializable,
 };
+#[cfg(feature = "venom")]
+use crate::RefShardBlocks;
+use std::borrow::Cow;
 use std::{
     cmp::Ordering,
     fmt::{self, Display, Formatter},
@@ -753,6 +755,8 @@ pub struct BlockExtra {
     pub rand_seed: UInt256,
     pub created_by: UInt256,
     custom: Option<ChildCell<McBlockExtra>>,
+    #[cfg(feature = "venom")]
+    ref_shard_blocks: RefShardBlocks,
 }
 
 impl BlockExtra {
@@ -764,6 +768,8 @@ impl BlockExtra {
             rand_seed: UInt256::rand(),
             created_by: UInt256::default(), // TODO: Need to fill?
             custom: None,
+            #[cfg(feature = "venom")]
+            ref_shard_blocks: RefShardBlocks::default(),
         }
     }
 
@@ -820,24 +826,26 @@ impl BlockExtra {
     }
 
     pub fn read_custom(&self) -> Result<Option<McBlockExtra>> {
-        Ok(
-            match self.custom {
-                Some(ref custom) => Some(custom.read_struct()?),
-                None => None
-            }
-        )
+        self.custom.as_ref().map(|c| c.read_struct()).transpose()
     }
 
     pub fn write_custom(&mut self, value: Option<&McBlockExtra>) -> Result<()> {
-        self.custom = match value {
-                Some(v) => Some(ChildCell::with_struct(v)?),
-                None => None
-            };
+        self.custom = value.map(ChildCell::with_struct).transpose()?;
         Ok(())
     }
 
     pub fn custom_cell(&self) -> Option<Cell> {
         self.custom.as_ref().map(|c| c.cell())
+    }
+
+    #[cfg(feature = "venom")]
+    pub fn ref_shard_blocks(&self) -> &RefShardBlocks {
+        &self.ref_shard_blocks
+    }
+
+    #[cfg(feature = "venom")]
+    pub fn set_ref_shard_blocks(&mut self, value: RefShardBlocks) {
+        self.ref_shard_blocks = value;
     }
 
     pub fn is_key_block(&self) -> bool {
@@ -846,46 +854,62 @@ impl BlockExtra {
 }
 
 const BLOCK_EXTRA_TAG: u32 = 0x4a33f6fd;
+#[cfg(feature = "venom")]
+const BLOCK_EXTRA_TAG_2: u32 = 0x4a33f6fc;
 
 impl Deserializable for BlockExtra {
     fn read_from(&mut self, cell: &mut SliceData) -> Result<()> {
         let tag = cell.get_next_u32()?;
-        if tag != BLOCK_EXTRA_TAG {
-            fail!(
-                BlockError::InvalidConstructorTag {
+        #[cfg(not(feature = "venom"))]
+        let wrong_tag = tag != BLOCK_EXTRA_TAG;
+        #[cfg(feature = "venom")]
+        let wrong_tag = tag != BLOCK_EXTRA_TAG && tag != BLOCK_EXTRA_TAG_2;
+        if wrong_tag {
+            fail!(BlockError::InvalidConstructorTag {
                     t: tag,
                     s: "BlockExtra".to_string()
-                }
-            )
+                })
         }
         self.in_msg_descr.read_from_reference(cell)?;
         self.out_msg_descr.read_from_reference(cell)?;
         self.account_blocks.read_from_reference(cell)?;
         self.rand_seed.read_from(cell)?;
         self.created_by.read_from(cell)?;
-        self.custom = if cell.get_next_bit()? {
-            Some(ChildCell::<McBlockExtra>::construct_from_reference(cell)?)
-        } else {
-            None
-        };
+        
+        if tag == BLOCK_EXTRA_TAG {
+            self.custom = ChildCell::construct_maybe_from_reference(cell)?;
+        }
+        #[cfg(feature = "venom")]
+        if tag == BLOCK_EXTRA_TAG_2 {
+            let mut child = SliceData::load_cell(cell.checked_drain_reference()?)?;
+            self.custom = ChildCell::construct_maybe_from_reference(&mut child)?;
+            self.ref_shard_blocks.read_from(&mut child)?;
+        }
+
         Ok(())
     }
 }
 
 impl Serializable for BlockExtra {
     fn write_to(&self, cell: &mut BuilderData) -> Result<()> {
+        #[cfg(feature = "venom")]
+        cell.append_u32(BLOCK_EXTRA_TAG_2)?;
+        #[cfg(not(feature = "venom"))]
         cell.append_u32(BLOCK_EXTRA_TAG)?;
         cell.checked_append_reference(self.in_msg_descr.cell())?;
         cell.checked_append_reference(self.out_msg_descr.cell())?;
         cell.checked_append_reference(self.account_blocks.cell())?;
-
         self.rand_seed.write_to(cell)?;
         self.created_by.write_to(cell)?;
-        if let Some(custrom) = &self.custom {
-            cell.append_bit_one()?;
-            cell.checked_append_reference(custrom.cell())?;
-        } else {
-            cell.append_bit_zero()?;
+
+        #[cfg(not(feature = "venom"))]
+        ChildCell::write_maybe_to(cell, self.custom.as_ref())?;
+        
+        #[cfg(feature = "venom")] {
+            let mut child = BuilderData::new();
+            ChildCell::write_maybe_to(&mut child, self.custom.as_ref())?;
+            self.ref_shard_blocks.write_to(&mut child)?;
+            cell.checked_append_reference(child.into_cell()?)?;
         }
         Ok(())
     }
@@ -1369,24 +1393,23 @@ impl Deserializable for ProofChain {
             )
         }
         {
-            let mut slice = slice.clone();
+            let mut slice = Cow::Borrowed(slice);
             for i in (0..len).rev() {
                 if slice.remaining_references() == 0 {
                     fail!(ExceptionCode::CellUnderflow)
                 }
-                self.push(slice.checked_drain_reference()?);
+                self.push(slice.to_mut().checked_drain_reference()?);
                 if i != 0 {
                     if slice.remaining_references() == 0 {
                         fail!(ExceptionCode::CellUnderflow)
                     }
-                    slice = SliceData::load_cell(slice.checked_drain_reference()?)?;
+                    slice = Cow::Owned(SliceData::load_cell(slice.to_mut().checked_drain_reference()?)?);
                 }
             }
         }
         Ok(())
     }
 }
-
 
 
 /*
