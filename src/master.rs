@@ -1308,6 +1308,19 @@ pub struct CollatorRange {
 }
 
 #[cfg(feature = "venom")]
+impl fmt::Display for CollatorRange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} ({}..{}", self.collator, self.start, self.finish)?;
+        if let Some(unexpected_finish) = self.unexpected_finish {
+            write!(f, ", unexpected {})", unexpected_finish)?;
+        } else {
+            write!(f, ")")?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(feature = "venom")]
 impl Serializable for CollatorRange {
     fn write_to(&self, cell: &mut BuilderData) -> Result<()> {
         self.collator.write_to(cell)?;
@@ -1338,6 +1351,26 @@ pub struct ShardCollators {
     pub current: CollatorRange,
     pub next: CollatorRange,
     pub next2: Option<CollatorRange>,
+}
+
+#[cfg(feature = "venom")]
+impl fmt::Display for ShardCollators {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "prev: {}", self.prev)?;
+        if let Some(prev2) = &self.prev2 {
+            writeln!(f, "prev2: {}", prev2)?;
+        } else {
+            writeln!(f, "prev2: none")?;
+        }
+        writeln!(f, "current: {}", self.current)?;
+        writeln!(f, "next: {}", self.next)?;
+        if let Some(next2) = &self.next2 {
+            write!(f, "next2: {}", next2)?;
+        } else {
+            write!(f, "next2: none")?;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(feature = "venom")]
@@ -1442,7 +1475,7 @@ define_HashmapE!{RefShardBlocks, 32, BinTree<ShardBlockRef>}
 #[cfg(feature = "venom")]
 impl RefShardBlocks {
     pub fn with_ids<'a>(ids: impl IntoIterator<Item = &'a BlockIdExt>) -> Result<Self> {
-        // Naive implementation. 
+        // Naive implementation.
         //TODO optimise me!
 
         let mut ref_shard_blocks = HashMap::new(); // wc -> shard -> id
@@ -1494,7 +1527,7 @@ impl RefShardBlocks {
     }
 
     pub fn iterate_shard_block_refs<F>(&self, mut func: F) -> Result<bool>
-        where F: FnMut(BlockIdExt) -> Result<bool> 
+        where F: FnMut(BlockIdExt) -> Result<bool>
     {
         self.iterate_with_keys(|wc_id: i32, shards| {
             shards.iterate(|prefix, block_id| {
@@ -1629,10 +1662,10 @@ impl Deserializable for ShardDescr {
     fn read_from(&mut self, slice: &mut SliceData) -> Result<()> {
         let tag = slice.get_next_int(SHARD_IDENT_TAG_LEN)? as u8;
         #[cfg(feature = "venom")]
-        let wrong_tag = tag != SHARD_IDENT_TAG_A && tag != SHARD_IDENT_TAG_B 
+        let wrong_tag = tag != SHARD_IDENT_TAG_A && tag != SHARD_IDENT_TAG_B
             && tag != SHARD_IDENT_TAG_C && tag != SHARD_IDENT_TAG_D && tag != SHARD_IDENT_TAG_E;
         #[cfg(not(feature = "venom"))]
-        let wrong_tag = tag != SHARD_IDENT_TAG_A && tag != SHARD_IDENT_TAG_B 
+        let wrong_tag = tag != SHARD_IDENT_TAG_A && tag != SHARD_IDENT_TAG_B
             && tag != SHARD_IDENT_TAG_C && tag != SHARD_IDENT_TAG_D;
         if wrong_tag {
             fail!(
