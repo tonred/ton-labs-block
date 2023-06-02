@@ -269,7 +269,7 @@ impl Default for BlockInfo {
             seq_no: 1,
             vert_seq_no: 0,
             shard: ShardIdent::default(),
-            gen_utime: UnixTime32::default(),
+            gen_utime: Default::default(),
             #[cfg(feature = "venom")]
             gen_utime_ms: 0,
             start_lt: 0,
@@ -331,17 +331,17 @@ impl BlockInfo {
     pub fn gen_utime(&self) -> UnixTime32 { self.gen_utime }
     pub fn set_gen_utime(&mut self, gen_utime: UnixTime32) { self.gen_utime = gen_utime }
 
-    #[cfg(feature = "venom")]
     pub fn set_gen_utime_ms(&mut self, gen_utime_millis: u64) {
-        let gen_utime = (gen_utime_millis / 1000) as u32;
-        let gen_utime_ms = (gen_utime_millis % 1000) as u16;
-
-        self.gen_utime = UnixTime32::new(gen_utime);
-        self.gen_utime_ms = gen_utime_ms;
+        self.gen_utime = ((gen_utime_millis / 1000) as u32).into();
+        #[cfg(feature = "venom")] {
+            self.gen_utime_ms = (gen_utime_millis % 1000) as u16;
+        }
     }
 
     #[cfg(feature = "venom")]
     pub fn gen_utime_ms(&self) -> u64 { self.gen_utime_ms as u64 + self.gen_utime().as_u32() as u64 * 1000 }
+    #[cfg(not(feature = "venom"))]
+    pub fn gen_utime_ms(&self) -> u64 { self.gen_utime().as_u32() as u64 * 1000 }
 
     pub fn start_lt(&self) -> u64 { self.start_lt }
     pub fn set_start_lt(&mut self, start_lt: u64) { self.start_lt = start_lt }
@@ -1154,7 +1154,7 @@ impl Serializable for BlockInfo {
         // shard:ShardIdent
         self.shard.write_to(cell)?;
 
-        let builder = cell.append_u32(self.gen_utime.as_u32())?;
+        let builder = cell.append_u32(self.gen_utime.into())?;
 
         #[cfg(feature = "venom")]
         builder.append_u16(self.gen_utime_ms)?;

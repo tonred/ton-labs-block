@@ -347,7 +347,7 @@ impl McShardRecord {
                     next_catchain_seqno: info.gen_catchain_seqno(),
                     next_validator_shard: info.shard().shard_prefix_with_tag(),
                     min_ref_mc_seqno: info.min_ref_mc_seqno(),
-                    gen_utime: info.gen_utime().as_u32(),
+                    gen_utime: info.gen_utime().into(),
                     split_merge_at: FutureSplitMerge::None, // is not used in McShardRecord
                     fees_collected: value_flow.fees_collected,
                     funds_created: value_flow.created,
