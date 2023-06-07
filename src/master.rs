@@ -26,8 +26,6 @@ use crate::{
     CopyleftRewards, Deserializable, MaybeDeserialize, MaybeSerialize, Serializable, U15, Augmentation,
 };
 use std::{collections::HashMap, fmt};
-#[cfg(feature = "venom")]
-use std::collections::HashSet;
 use ton_types::{
     error, fail, hm_label, AccountId, BuilderData, Cell, HashmapE, HashmapType, IBitstring, Result,
     SliceData, UInt256,
@@ -1416,6 +1414,7 @@ pub struct ShardBlockRef {
     pub seq_no: u32,
     pub root_hash: UInt256,
     pub file_hash: UInt256,
+    pub end_lt: u64,
 }
 
 impl Deserializable for ShardBlockRef {
@@ -1424,6 +1423,7 @@ impl Deserializable for ShardBlockRef {
             seq_no: slice.get_next_u32()?,
             root_hash: UInt256::construct_from(slice)?,
             file_hash: UInt256::construct_from(slice)?,
+            end_lt: slice.get_next_u64()?,
         })
     }
 }
@@ -1433,31 +1433,21 @@ impl Serializable for ShardBlockRef {
         self.seq_no.write_to(cell)?;
         self.root_hash.write_to(cell)?;
         self.file_hash.write_to(cell)?;
+        self.end_lt.write_to(cell)?;
         Ok(())
     }
 }
 
-impl From<&BlockIdExt> for ShardBlockRef {
-    fn from(block_id: &BlockIdExt) -> Self {
+impl ShardBlockRef {
+    pub fn with_params(block_id: &BlockIdExt, end_lt: u64) -> Self {
         Self {
             seq_no: block_id.seq_no,
             root_hash: block_id.root_hash.clone(),
             file_hash: block_id.file_hash.clone(),
+            end_lt,
         }
     }
-}
 
-impl From<BlockIdExt> for ShardBlockRef {
-    fn from(block_id: BlockIdExt) -> Self {
-        Self {
-            seq_no: block_id.seq_no,
-            root_hash: block_id.root_hash,
-            file_hash: block_id.file_hash,
-        }
-    }
-}
-
-impl ShardBlockRef {
     pub fn into_block_id(self, shard_id: ShardIdent) -> Result<BlockIdExt> {
         Ok(BlockIdExt {
             shard_id,
@@ -1474,19 +1464,19 @@ define_HashmapE!{RefShardBlocks, 32, BinTree<ShardBlockRef>}
 
 #[cfg(feature = "venom")]
 impl RefShardBlocks {
-    pub fn with_ids<'a>(ids: impl IntoIterator<Item = &'a BlockIdExt>) -> Result<Self> {
-        // Naive implementation.
+    pub fn with_ids<'a>(ids: impl IntoIterator<Item = &'a (BlockIdExt, u64)>) -> Result<Self> {
+        // Naive implementation. 
         //TODO optimise me!
 
         let mut ref_shard_blocks = HashMap::new(); // wc -> shard -> id
-        for id in ids {
+        for (id, end_lt) in ids {
             let shards = loop {
                 if let Some(wc) = ref_shard_blocks.get_mut(&id.shard().workchain_id()) {
                     break wc
                 }
                 ref_shard_blocks.insert(id.shard().workchain_id(), HashMap::new());
             };
-            shards.insert(id.shard(), ShardBlockRef::from(id));
+            shards.insert(id.shard(), ShardBlockRef::with_params(id, *end_lt));
         }
 
         let mut result = Self::default();
@@ -1527,13 +1517,14 @@ impl RefShardBlocks {
     }
 
     pub fn iterate_shard_block_refs<F>(&self, mut func: F) -> Result<bool>
-        where F: FnMut(BlockIdExt) -> Result<bool>
+        where F: FnMut(BlockIdExt, u64) -> Result<bool> 
     {
         self.iterate_with_keys(|wc_id: i32, shards| {
-            shards.iterate(|prefix, block_id| {
+            shards.iterate(|prefix, info| {
                 let shard_ident = ShardIdent::with_prefix_slice(wc_id, prefix)?;
-                let block_id_full = block_id.into_block_id(shard_ident)?;
-                func(block_id_full)
+                let end_lt = info.end_lt;
+                let block_id = info.into_block_id(shard_ident)?;
+                func(block_id, end_lt)
             })
         })
     }
@@ -1547,14 +1538,6 @@ impl RefShardBlocks {
         Ok(None)
     }
 
-    pub fn collect_ref_shard_blocks(&self) -> Result<HashSet<BlockIdExt>> {
-        let mut res = HashSet::new();
-        self.iterate_shard_block_refs(|block_id| {
-            res.insert(block_id);
-            Ok(true)
-        })?;
-        Ok(res)
-    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
