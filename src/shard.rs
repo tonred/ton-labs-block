@@ -839,6 +839,8 @@ pub struct ShardStateUnsplit {
     seq_no: u32,
     vert_seq_no: u32,
     gen_time: u32,
+    #[cfg(feature="venom")]
+    gen_time_ms: u16,
     gen_lt: u64,
     min_ref_mc_seqno: u32,
     out_msg_queue_info: ChildCell<OutMsgQueueInfo>,
@@ -914,8 +916,27 @@ impl ShardStateUnsplit {
         self.gen_time
     }
 
+    pub fn gen_time_ms(&self) -> u64 {
+        #[cfg(feature="venom")] {
+            self.gen_time as u64 * 1000 + (self.gen_time_ms as u64)
+        }
+        #[cfg(not(feature="venom"))] {
+            self.gen_time as u64 * 1000
+        }
+    }
+
     pub fn set_gen_time(&mut self, value: u32) {
-        self.gen_time = value
+        self.gen_time = value;
+        #[cfg(feature="venom")] {
+            self.gen_time_ms = 0;
+        }
+    }
+
+    pub fn set_gen_time_ms(&mut self, value: u64) {
+        self.gen_time = (value / 1000) as u32;
+        #[cfg(feature="venom")] {
+            self.gen_time_ms = (value % 1000) as u16;
+        }
     }
 
     pub fn gen_lt(&self) -> u64 {
@@ -1181,6 +1202,10 @@ impl Deserializable for ShardStateUnsplit {
         self.seq_no.read_from(cell)?;
         self.vert_seq_no.read_from(cell)?;
         self.gen_time.read_from(cell)?;
+        #[cfg(feature="venom")]
+        if tag != SHARD_STATE_UNSPLIT_PFX {
+            self.gen_time_ms.read_from(cell)?;
+        }
         self.gen_lt.read_from(cell)?;
         self.min_ref_mc_seqno.read_from(cell)?;
         self.out_msg_queue_info.read_from_reference(cell)?;
@@ -1220,11 +1245,7 @@ impl Deserializable for ShardStateUnsplit {
 impl Serializable for ShardStateUnsplit {
     fn write_to(&self, builder: &mut BuilderData) -> Result<()> {
         #[cfg(feature = "venom")]
-        let tag = if self.ref_shard_blocks.is_some() {
-            SHARD_STATE_UNSPLIT_PFX_2 
-        } else {
-            SHARD_STATE_UNSPLIT_PFX
-        };
+        let tag = SHARD_STATE_UNSPLIT_PFX_2;
         #[cfg(not(feature = "venom"))]
         let tag = SHARD_STATE_UNSPLIT_PFX;
         builder.append_u32(tag)?;
@@ -1233,6 +1254,8 @@ impl Serializable for ShardStateUnsplit {
         self.seq_no.write_to(builder)?;
         self.vert_seq_no.write_to(builder)?;
         self.gen_time.write_to(builder)?;
+        #[cfg(feature="venom")]
+        self.gen_time_ms.write_to(builder)?;
         self.gen_lt.write_to(builder)?;
         self.min_ref_mc_seqno.write_to(builder)?;
         builder.checked_append_reference(self.out_msg_queue_info.cell())?;
