@@ -1349,6 +1349,7 @@ pub struct ShardCollators {
     pub current: CollatorRange,
     pub next: CollatorRange,
     pub next2: Option<CollatorRange>,
+    pub updated_at: u32,
 }
 
 #[cfg(feature = "venom")]
@@ -1367,6 +1368,7 @@ impl fmt::Display for ShardCollators {
         } else {
             write!(f, "next2: none")?;
         }
+        writeln!(f, "updated_at: {}", self.updated_at)?;
         Ok(())
     }
 }
@@ -1383,6 +1385,7 @@ impl Serializable for ShardCollators {
         self.current.write_to(cell)?;
         self.next.write_to(cell)?;
         self.next2.write_maybe_to(cell)?;
+        self.updated_at.write_to(cell)?;
         Ok(())
     }
 }
@@ -1405,6 +1408,7 @@ impl Deserializable for ShardCollators {
             current: Deserializable::construct_from(slice)?,
             next: Deserializable::construct_from(slice)?,
             next2: Deserializable::construct_maybe_from(slice)?,
+            updated_at: Deserializable::construct_from(slice)?,
         })
     }
 }
