@@ -1533,10 +1533,10 @@ impl RefShardBlocks {
         })
     }
 
-    pub fn ref_shard_block(&self, shard_ident: &ShardIdent) -> Result<Option<BlockIdExt>> {
+    pub fn ref_shard_block(&self, shard_ident: &ShardIdent) -> Result<Option<ShardBlockRef>> {
         if let Some(shards) = self.get(&shard_ident.workchain_id())? {
-            if let Some(block_id) = shards.get(shard_ident.shard_key(false))? {
-                return Ok(Some(block_id.into_block_id(shard_ident.clone())?))
+            if let Some(sbr) = shards.get(shard_ident.shard_key(false))? {
+                return Ok(Some(sbr))
             }
         }
         Ok(None)
