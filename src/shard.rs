@@ -855,7 +855,7 @@ pub struct ShardStateUnsplit {
     master_ref: Option<BlkMasterInfo>,
 
     // This field is present only in the masterchain and contains all the masterchain-specific data.
-    custom: Option<ChildCell<McStateExtra>>, 
+    custom: Option<ChildCell<McStateExtra>>,
 
     #[cfg(feature = "venom")]
     // This field is present only in shardchain blocks (in case of venom consensus)

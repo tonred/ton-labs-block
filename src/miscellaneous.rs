@@ -23,7 +23,7 @@ use ton_types::{
 
 
 /*
-// key is [ shard:uint64 mc_seqno:uint32 ]  
+// key is [ shard:uint64 mc_seqno:uint32 ]
 _ (HashmapE 96 ProcessedUpto) = ProcessedInfo;
 */
 define_HashmapE!(ProcessedInfo, 96, ProcessedUpto);
@@ -67,7 +67,7 @@ impl Deserializable for ProcessedInfoKey {
 
 ///
 /// Struct ProcessedUpto
-/// 
+///
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct ProcessedUpto {
     pub last_msg_lt: u64,
@@ -89,7 +89,7 @@ impl ProcessedUpto {
             last_msg_hash,
             #[cfg(feature = "venom")]
             original_shard,
-        }   
+        }
     }
 }
 
@@ -131,7 +131,7 @@ impl IhrPendingInfo {
 
 ///
 /// IhrPendingSince structure
-/// 
+///
 /// ihr_pending$_
 ///     import_lt:uint64
 /// = IhrPendingSince;
@@ -150,7 +150,7 @@ impl IhrPendingSince {
     pub fn with_import_lt(import_lt: u64) -> Self {
         IhrPendingSince {
             import_lt,
-        }   
+        }
     }
 
     pub fn import_lt(&self) -> u64 {

@@ -270,7 +270,9 @@ impl ShardHashes {
         workchain_id: i32,
         reg_mc_seqno: u32,
         zerostate_root_hash: UInt256,
-        zerostate_file_hash: UInt256
+        zerostate_file_hash: UInt256,
+        #[cfg(feature = "venom")]
+        collators: ShardCollators,
     ) -> Result<()> {
 
         if self.has_workchain(workchain_id)? {
@@ -282,6 +284,8 @@ impl ShardHashes {
             root_hash: zerostate_root_hash,
             file_hash: zerostate_file_hash,
             next_validator_shard: SHARD_FULL,
+            #[cfg(feature = "venom")]
+            collators: Some(collators),
             ..ShardDescr::default()
         };
         let tree = BinTree::with_item(&descr)?;
@@ -1460,7 +1464,7 @@ define_HashmapE!{RefShardBlocks, 32, BinTree<ShardBlockRef>}
 #[cfg(feature = "venom")]
 impl RefShardBlocks {
     pub fn with_ids<'a>(ids: impl IntoIterator<Item = &'a (BlockIdExt, u64)>) -> Result<Self> {
-        // Naive implementation. 
+        // Naive implementation.
         //TODO optimise me!
 
         let mut ref_shard_blocks = HashMap::new(); // wc -> shard -> id
@@ -1512,7 +1516,7 @@ impl RefShardBlocks {
     }
 
     pub fn iterate_shard_block_refs<F>(&self, mut func: F) -> Result<bool>
-        where F: FnMut(BlockIdExt, u64) -> Result<bool> 
+        where F: FnMut(BlockIdExt, u64) -> Result<bool>
     {
         self.iterate_with_keys(|wc_id: i32, shards| {
             shards.iterate(|prefix, info| {
