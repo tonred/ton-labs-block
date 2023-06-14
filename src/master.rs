@@ -1302,19 +1302,12 @@ pub struct CollatorRange {
     pub collator: u16,
     pub start: u32,
     pub finish: u32,
-    pub unexpected_finish: Option<u32>,
 }
 
 #[cfg(feature = "venom")]
 impl fmt::Display for CollatorRange {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} ({}..{}", self.collator, self.start, self.finish)?;
-        if let Some(unexpected_finish) = self.unexpected_finish {
-            write!(f, ", unexpected {})", unexpected_finish)?;
-        } else {
-            write!(f, ")")?;
-        }
-        Ok(())
+        write!(f, "{} ({}..{})", self.collator, self.start, self.finish)
     }
 }
 
@@ -1324,7 +1317,6 @@ impl Serializable for CollatorRange {
         self.collator.write_to(cell)?;
         self.start.write_to(cell)?;
         self.finish.write_to(cell)?;
-        self.unexpected_finish.write_maybe_to(cell)?;
         Ok(())
     }
 }
@@ -1336,7 +1328,6 @@ impl Deserializable for CollatorRange {
             collator: u16::construct_from(slice)?,
             start: slice.get_next_u32()?,
             finish: slice.get_next_u32()?,
-            unexpected_finish: Deserializable::construct_maybe_from(slice)?,
         })
     }
 }
