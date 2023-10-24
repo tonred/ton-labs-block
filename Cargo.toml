@@ -40,3 +40,4 @@ smallvec = { version = "1.8.0", features = ["const_generics", "union", "write"] 
 
 [features]
 venom = []
+ton = []

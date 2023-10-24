@@ -997,6 +997,19 @@ impl CopyleftRewards {
 ///   minted:CurrencyCollection
 /// ] = ValueFlow;
 ///
+/// value_flow_v2#3ebf98b7 ^[ from_prev_blk:CurrencyCollection
+///   to_next_blk:CurrencyCollection
+///   imported:CurrencyCollection
+///   exported:CurrencyCollection ]
+///   fees_collected:CurrencyCollection
+///   burned:CurrencyCollection
+///   ^[
+///   fees_imported:CurrencyCollection
+///   recovered:CurrencyCollection
+///   created:CurrencyCollection
+///   minted:CurrencyCollection
+///   ] = ValueFlow;
+///
 /// TON Blockchain 4.3.5:
 /// The TL-B construct _:ˆ[...] describes a reference to a cell containing the fields
 /// listed inside the square brackets. In this way, several fields can be moved from
@@ -1008,6 +1021,8 @@ pub struct ValueFlow {
     pub imported: CurrencyCollection,      // serialized into another cell 1
     pub exported: CurrencyCollection,      // serialized into another cell 1
     pub fees_collected: CurrencyCollection,
+    #[cfg(feature = "ton")]
+    pub burned: Option<CurrencyCollection>,
     pub fees_imported: CurrencyCollection, // serialized into another cell 2
     pub recovered: CurrencyCollection,     // serialized into another cell 2
     pub created: CurrencyCollection,       // serialized into another cell 2
@@ -1047,6 +1062,10 @@ impl ValueFlow {
         self.imported.other.iterate(|_value| Ok(true))?;
         self.exported.other.iterate(|_value| Ok(true))?;
         self.fees_collected.other.iterate(|_value| Ok(true))?;
+        #[cfg(feature = "ton")]
+        if let Some(burned) = &self.burned {
+            burned.other.iterate(|_value| Ok(true))?;
+        }
         self.fees_imported.other.iterate(|_value| Ok(true))?;
         self.recovered.other.iterate(|_value| Ok(true))?;
         self.created.other.iterate(|_value| Ok(true))?;
@@ -1191,9 +1210,18 @@ impl Serializable for BlockInfo {
 
 const VALUE_FLOW_TAG: u32 = 0xb8e48dfb;
 const VALUE_FLOW_TAG_V2: u32 = 0xe0864f6d;
+#[cfg(feature = "ton")]
+const VALUE_FLOW_TAG_TON: u32 = 0x3ebf98b7;
 
 impl Serializable for ValueFlow {
     fn write_to(&self, cell: &mut BuilderData) -> Result<()> {
+        #[cfg(feature = "ton")]
+        let tag = if self.burned.is_none() {
+            VALUE_FLOW_TAG
+        } else {
+            VALUE_FLOW_TAG_TON
+        };
+        #[cfg(not(feature = "ton"))]
         let tag = if self.copyleft_rewards.is_empty() {
             VALUE_FLOW_TAG
         } else {
@@ -1208,6 +1236,10 @@ impl Serializable for ValueFlow {
         self.exported.write_to(&mut cell1)?;
         cell.checked_append_reference(cell1.into_cell()?)?;
         self.fees_collected.write_to(cell)?;
+        #[cfg(feature = "ton")]
+        if let Some(burned) = &self.burned {
+            burned.write_to(cell)?
+        }
 
         let mut cell2 = BuilderData::new();
         self.fees_imported.write_to(&mut cell2)?;
@@ -1227,7 +1259,11 @@ impl Serializable for ValueFlow {
 impl Deserializable for ValueFlow {
     fn read_from(&mut self, cell: &mut SliceData) -> Result<()> {
         let tag = cell.get_next_u32()?;
-        if tag != VALUE_FLOW_TAG && tag != VALUE_FLOW_TAG_V2 {
+        #[cfg(feature = "ton")]
+        let is_tag_valid = tag == VALUE_FLOW_TAG || tag == VALUE_FLOW_TAG_TON;
+        #[cfg(not(feature = "ton"))]
+        let is_tag_valid = tag == VALUE_FLOW_TAG || tag == VALUE_FLOW_TAG_V2;
+        if !is_tag_valid {
             fail!(
                 BlockError::InvalidConstructorTag {
                     t: tag,
@@ -1241,6 +1277,10 @@ impl Deserializable for ValueFlow {
         self.imported.read_from(cell1)?;
         self.exported.read_from(cell1)?;
         self.fees_collected.read_from(cell)?;
+        #[cfg(feature = "ton")]
+        if tag == VALUE_FLOW_TAG_TON {
+            self.burned.get_or_insert_with(Default::default).read_from(cell)?;
+        }
 
         let cell2 = &mut SliceData::load_cell(cell.checked_drain_reference()?)?;
         self.fees_imported.read_from(cell2)?;
