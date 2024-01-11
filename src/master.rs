@@ -1441,8 +1441,8 @@ impl ShardBlockRef {
     pub fn with_params(block_id: &BlockIdExt, end_lt: u64) -> Self {
         Self {
             seq_no: block_id.seq_no,
-            root_hash: block_id.root_hash.clone(),
-            file_hash: block_id.file_hash.clone(),
+            root_hash: block_id.root_hash,
+            file_hash: block_id.file_hash,
             end_lt,
         }
     }

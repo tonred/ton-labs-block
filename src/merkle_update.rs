@@ -22,6 +22,7 @@ use ton_types::{
     BuilderData, Cell, CellType, IBitstring, LevelMask, SliceData,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
+use std::collections::hash_map;
 
 /*
 !merkle_update {X:Type} old_hash:uint256 new_hash:uint256
@@ -201,6 +202,99 @@ impl MerkleUpdate {
                 new: new_update_cell,
             })
         }
+    }
+
+    pub fn compute_removed_cells(&self, old: Cell) -> Result<FxHashMap<UInt256, u32>> {
+        {
+            let full_old_tree_hash = old.repr_hash();
+            if full_old_tree_hash != self.old_hash || full_old_tree_hash != self.old.hash(0) {
+                fail!(BlockError::WrongMerkleUpdate("old bag's hash mismatch".to_string()))
+            }
+        }
+
+        if self.old_hash == self.new_hash {
+            // No cells were removed
+            return Ok(Default::default());
+        }
+
+        let mut new_cells = FxHashSet::default();
+
+        // Compute a list of all hashes in the `new` merkle update tree
+        {
+            let mut visited = FxHashSet::default();
+            let mut merkle_depth = self.new.is_merkle() as usize;
+            let mut stack = vec![self.new.clone().into_references()];
+
+            visited.insert(self.new.repr_hash());
+            new_cells.insert(self.new.hash(0));
+
+            'outer: while let Some(iter) = stack.last_mut() {
+                for child in &mut *iter {
+                    if !visited.insert(child.repr_hash()) {
+                        continue;
+                    }
+
+                    // Tack new cells
+                    new_cells.insert(child.hash(merkle_depth));
+
+                    // Unchanged cells (as pruned branches) must be presented in the old tree
+                    let ty = child.cell_type();
+                    if ty == CellType::PrunedBranch {
+                        continue;
+                    }
+
+                    // Increase the current merkle depth if needed
+                    merkle_depth += matches!(ty, CellType::MerkleProof | CellType::MerkleUpdate) as usize;
+                    // And proceed to processing this child
+                    stack.push(child.into_references());
+                    continue 'outer;
+                }
+
+                merkle_depth -= iter.cell.is_merkle() as usize;
+                stack.pop();
+            }
+
+            debug_assert_eq!(merkle_depth, 0);
+        }
+
+        // Traverse old cells
+        let mut result = FxHashMap::default();
+        let mut stack = Vec::new();
+
+        {
+            let old_repr_hash = old.repr_hash();
+            if !new_cells.contains(&old_repr_hash) {
+                stack.push(old.into_references());
+            }
+
+            result.insert(old_repr_hash, 1);
+        }
+
+        'outer: while let Some(iter) = stack.last_mut() {
+            for child in &mut *iter {
+                let hash = child.repr_hash();
+                match result.entry(hash) {
+                    hash_map::Entry::Occupied(mut entry) => {
+                        *entry.get_mut() += 1;
+                        continue;
+                    }
+                    hash_map::Entry::Vacant(entry) => {
+                        entry.insert(1);
+                    }
+                }
+
+                // Skip empty or used subtrees
+                if child.references_count() == 0 || new_cells.contains(&hash) {
+                    continue;
+                }
+
+                stack.push(child.into_references());
+                continue 'outer;
+            }
+            stack.pop();
+        }
+
+        Ok(result)
     }
 
     fn collect_used_paths_cells(
@@ -540,5 +634,44 @@ impl MerkleUpdate {
                 }
             }
         }
+    }
+}
+
+trait CellExt {
+    fn into_references(self) -> RefsIter;
+}
+
+impl CellExt for Cell {
+    fn into_references(self) -> RefsIter {
+        RefsIter {
+            max: self.references_count() as u8,
+            cell: self,
+            index: 0,
+        }
+    }
+}
+
+struct RefsIter {
+    cell: Cell,
+    max: u8,
+    index: u8,
+}
+
+impl Iterator for RefsIter {
+    type Item = Cell;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index >= self.max {
+            None
+        } else {
+            let child = self.cell.reference(self.index as usize).ok();
+            self.index += 1;
+            child
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.max.saturating_sub(self.index) as usize;
+        (remaining, Some(remaining))
     }
 }
