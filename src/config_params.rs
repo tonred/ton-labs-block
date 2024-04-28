@@ -1725,6 +1725,8 @@ pub struct ConsensusConfig {
     pub catchain_max_deps: u32,
     pub max_block_bytes: u32,
     pub max_collated_bytes: u32,
+    pub proto_version: u16,
+    pub catchain_max_blocks_coeff: u32,
 }
 
 impl ConsensusConfig {
@@ -1736,10 +1738,29 @@ impl ConsensusConfig {
 const CONSENSUS_CONFIG_TAG_1: u8 = 0xD6;
 const CONSENSUS_CONFIG_TAG_2: u8 = 0xD7;
 
+#[cfg(feature = "ton")]
+const CONSENSUS_CONFIG_TAG_3: u8 = 0xD8;
+
+#[cfg(feature = "ton")]
+const CONSENSUS_CONFIG_TAG_4: u8 = 0xD9;
+
 impl Deserializable for ConsensusConfig {
     fn read_from(&mut self, cell: &mut SliceData) -> Result<()> {
         let tag = cell.get_next_byte()?;
+        #[cfg(not(feature = "ton"))]
         if (tag != CONSENSUS_CONFIG_TAG_1) && (tag != CONSENSUS_CONFIG_TAG_2) {
+            fail!(
+                BlockError::InvalidConstructorTag {
+                    t: tag as u32,
+                    s: std::any::type_name::<Self>().to_string()
+                }
+            )
+        }
+        #[cfg(feature = "ton")]
+        if (tag != CONSENSUS_CONFIG_TAG_1) &&
+            (tag != CONSENSUS_CONFIG_TAG_2) &&
+            (tag != CONSENSUS_CONFIG_TAG_3) &&
+            (tag != CONSENSUS_CONFIG_TAG_4) {
             fail!(
                 BlockError::InvalidConstructorTag {
                     t: tag as u32,
@@ -1767,6 +1788,14 @@ impl Deserializable for ConsensusConfig {
         self.catchain_max_deps.read_from(cell)?;
         self.max_block_bytes.read_from(cell)?;
         self.max_collated_bytes.read_from(cell)?;
+        #[cfg(feature = "ton")]
+        if tag == CONSENSUS_CONFIG_TAG_3 || tag == CONSENSUS_CONFIG_TAG_4 {
+            self.proto_version.read_from(cell)?;
+        }
+        #[cfg(feature = "ton")]
+        if  tag == CONSENSUS_CONFIG_TAG_4 {
+            self.catchain_max_blocks_coeff.read_from(cell)?;
+        }
         Ok(())
     }
 }
